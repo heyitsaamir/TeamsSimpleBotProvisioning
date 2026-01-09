@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot Provisioner</title>
+</head>
+<body>
+  <h1>Bot Provisioner</h1>
+  <p>Provision a Microsoft Teams bot by completing all steps below.</p>
+
+  <hr>
+
+  <!-- Step 1: Authentication -->
+  <fieldset id="step-1">
+    <legend><strong>Step 1: Authenticate</strong></legend>
+
+    <p>Authenticate with Microsoft 365 (Graph API scopes)</p>
+    <p><small>Additional scopes (Teams Dev Portal) will be acquired silently as needed.</small></p>
+    <button id="btn-auth">Authenticate with Microsoft 365</button>
+
+    <div id="auth-device-code" style="display: none;">
+      <p>Open <a href="" id="auth-url" target="_blank">this link</a> and enter code: <strong id="user-code"></strong></p>
+      <p>Waiting for authentication...</p>
+    </div>
+
+    <div id="auth-success" style="display: none;">
+      <p>✓ Authenticated as: <span id="user-email"></span></p>
+      <p>Tenant ID: <span id="tenant-id"></span></p>
+      <p>Account cached - tokens for other resources will be acquired silently.</p>
+    </div>
+  </fieldset>
+
+  <hr>
+
+  <!-- Step 2: Configuration -->
+  <fieldset id="step-2" disabled>
+    <legend><strong>Step 2: Configure Bot</strong></legend>
+
+    <p>
+      <label>Bot Name: <input type="text" id="bot-name" required></label>
+    </p>
+    <p>
+      <label>Bot Endpoint (HTTPS): <input type="url" id="bot-endpoint" required pattern="https://.*"></label>
+    </p>
+
+    <button id="btn-start-provision">Start Provisioning</button>
+  </fieldset>
+
+  <hr>
+
+  <!-- Step 3: Provisioning -->
+  <fieldset id="step-3" disabled>
+    <legend><strong>Step 3: Provisioning</strong></legend>
+
+    <ul id="provision-status">
+      <li id="provision-aad">Creating Azure AD App: <span>Waiting...</span></li>
+      <li id="provision-secret">Generating Client Secret: <span>Waiting...</span></li>
+      <li id="provision-teams">Creating Teams App: <span>Waiting...</span></li>
+      <li id="provision-bot">Registering Bot: <span>Waiting...</span></li>
+    </ul>
+
+    <div id="provision-error" style="display: none;">
+      <p><strong>Error:</strong> <span id="provision-error-message"></span></p>
+      <button id="btn-retry">Retry</button>
+    </div>
+  </fieldset>
+
+  <hr>
+
+  <!-- Step 4: Complete -->
+  <fieldset id="step-4" disabled>
+    <legend><strong>Step 4: Credentials</strong></legend>
+
+    <p><strong>Your bot has been provisioned. Here are your credentials:</strong></p>
+
+    <table border="1">
+      <tr>
+        <td>CLIENT_ID</td>
+        <td><code id="cred-client-id"></code></td>
+        <td><button class="btn-copy" data-copy="cred-client-id">Copy</button></td>
+      </tr>
+      <tr>
+        <td>CLIENT_SECRET</td>
+        <td><code id="cred-client-secret"></code></td>
+        <td><button class="btn-copy" data-copy="cred-client-secret">Copy</button></td>
+      </tr>
+      <tr>
+        <td>TENANT_ID</td>
+        <td><code id="cred-tenant-id"></code></td>
+        <td><button class="btn-copy" data-copy="cred-tenant-id">Copy</button></td>
+      </tr>
+      <tr>
+        <td>TEAMS_APP_ID</td>
+        <td><code id="cred-teams-app-id"></code></td>
+        <td><button class="btn-copy" data-copy="cred-teams-app-id">Copy</button></td>
+      </tr>
+      <tr>
+        <td>BOT_ENDPOINT</td>
+        <td><code id="cred-bot-endpoint"></code></td>
+        <td><button class="btn-copy" data-copy="cred-bot-endpoint">Copy</button></td>
+      </tr>
+    </table>
+
+    <h3>Install in Teams:</h3>
+    <p>Click the button below to install and open your bot in Microsoft Teams:</p>
+    <p>
+      <button id="teams-deep-link-btn" disabled>
+        Open in Microsoft Teams (pending provisioning)
+      </button>
+    </p>
+
+    <h3>.env file content:</h3>
+    <pre id="env-file-content"></pre>
+    <button id="btn-download-env">Download .env</button>
+
+    <hr>
+    <button id="btn-start-over">Start Over</button>
+  </fieldset>
+
+  <script src="app.js"></script>
+</body>
+</html>
