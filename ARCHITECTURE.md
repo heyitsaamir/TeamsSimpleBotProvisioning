@@ -105,6 +105,33 @@ Both use same cached refresh token via `acquireTokenSilent()`.
 - User authenticates on any device
 - Matches Microsoft 365 Agents Toolkit CLI behavior
 
+### Why No Client Secret?
+
+**Public Client vs Confidential Client:**
+
+OAuth 2.0 has two client types:
+
+| Type | Can Store Secrets? | Examples | Auth Method |
+|------|-------------------|----------|-------------|
+| **Confidential** | ✅ Yes (server-side) | Backend APIs, web servers | `client_id` + `client_secret` |
+| **Public** | ❌ No (runs on user device) | Mobile apps, SPAs, CLI tools | `client_id` only |
+
+**Device Code Flow = Public Client**
+
+The client ID we use (`7ea7c24c-b1f6-4a20-9d11-9ae12e9e7ac0`) is registered in Azure AD as a **public client**:
+- No secret required (or even allowed)
+- Anyone can use this client ID
+- Security comes from **user authentication**, not client authentication
+- Device code itself acts as a temporary secret (expires in ~15 minutes)
+
+**Why this is secure:**
+- Can't embed secrets in CLI tools (users could extract them)
+- User must authenticate with their own credentials
+- Device code is single-use and short-lived
+- Azure AD validates the user, not the client
+
+This is why tools like `az login`, `gh auth login`, and `teamsapp login` don't need secrets.
+
 ## Session Management
 
 ```javascript
@@ -119,7 +146,7 @@ sessions.set(sessionId, {
 })
 ```
 
-No raw tokens stored. MSAL manages tokens internally.
+**Important:** We only store the account object. MSAL stores all tokens (access tokens, refresh tokens) in its own internal cache (in-memory for this demo, `~/.fx/account/` in the real CLI). When we call `acquireTokenSilent()`, MSAL uses the account to lookup cached tokens.
 
 ## API Endpoints
 

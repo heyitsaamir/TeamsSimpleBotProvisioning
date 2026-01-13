@@ -4,18 +4,28 @@ const bodyParser = require('body-parser');
 const msal = require('@azure/msal-node');
 const axios = require('axios');
 const AdmZip = require('adm-zip');
+const crypto = require('crypto');
 
 const app = express();
-const PORT = 3001;
+const PORT = 3002; // Different port to avoid conflict with public client server
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: [
+        'http://localhost:8080',
+        'https://3hvfdfhp-8080.usw2.devtunnels.ms',
+        'https://3hvfdfhp-3002.usw2.devtunnels.ms' // Backend tunnel can also receive requests
+    ],
+    credentials: true
+}));
 app.use(bodyParser.json());
 
 // Configuration
 const CONFIG = {
-    clientId: '7ea7c24c-b1f6-4a20-9d11-9ae12e9e7ac0', // Actual CLI client ID (same as used by teamsapp login)
+    clientId: '2a098349-9ecc-463f-a053-d5675e10deeb',
+    clientSecret: process.env.CLIENT_SECRET || 'YOUR_CLIENT_SECRET_HERE', // Set via environment variable
     authority: 'https://login.microsoftonline.com/common',
+    redirectUri: 'https://3hvfdfhp-8080.usw2.devtunnels.ms/redirect.html', // Frontend redirect page
     graphBaseUrl: 'https://graph.microsoft.com/v1.0',
     tdpBaseUrl: 'https://dev.teams.microsoft.com',
     graphScopes: [
@@ -27,99 +37,69 @@ const CONFIG = {
     ],
 };
 
+// IMPORTANT: Azure AD doesn't allow requesting scopes from multiple resources in one request
+// We can only request Graph scopes OR TDP scopes, not both
+// Solution: Request Graph scopes first, then use acquireTokenSilent for TDP (may require admin pre-consent)
+const INITIAL_SCOPES = CONFIG.graphScopes; // Start with Graph API scopes only
+
 // In-memory session storage (use Redis in production)
 const sessions = new Map();
 
-// Store pending device code requests with their status
-const pendingDeviceCodeRequests = new Map();
+// Store PKCE code verifiers and states
+const pendingAuthRequests = new Map();
 
-// MSAL Client
+// MSAL Confidential Client
 const msalConfig = {
     auth: {
         clientId: CONFIG.clientId,
         authority: CONFIG.authority,
+        clientSecret: CONFIG.clientSecret,
     }
 };
-const pca = new msal.PublicClientApplication(msalConfig);
+const cca = new msal.ConfidentialClientApplication(msalConfig);
 
 // ═══════════════════════════════════════════════════════════════
 // AUTHENTICATION ENDPOINTS
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * POST /api/auth/start
- * Start device code authentication flow using MSAL
- * This properly caches tokens for acquireTokenSilent to work
+ * GET /api/auth/start
+ * Start authorization code flow (confidential client)
+ * Returns authorization URL for user to visit
  */
-app.post('/api/auth/start', async (req, res) => {
+app.get('/api/auth/start', async (req, res) => {
     try {
-        const requestId = generateSessionId();
+        // Generate PKCE code verifier and challenge
+        const codeVerifier = generateCodeVerifier();
+        const codeChallenge = generateCodeChallenge(codeVerifier);
 
-        // Create a promise that resolves when device code callback is invoked
-        let resolveDeviceCode;
-        const deviceCodePromise = new Promise((resolve) => {
-            resolveDeviceCode = resolve;
+        // Generate state for CSRF protection
+        const state = generateSessionId();
+
+        // Store PKCE verifier and state for later verification
+        pendingAuthRequests.set(state, {
+            codeVerifier,
+            createdAt: Date.now(),
         });
 
-        // Use MSAL's built-in device code flow
-        const deviceCodeRequest = {
-            deviceCodeCallback: (response) => {
-                // This callback receives the device code info
-                const deviceCodeInfo = {
-                    userCode: response.userCode,
-                    verificationUri: response.verificationUri,
-                    message: response.message,
-                    expiresIn: response.expiresIn,
-                };
-                console.log('Device code generated:', response.userCode);
-                resolveDeviceCode(deviceCodeInfo);
-            },
-            scopes: CONFIG.graphScopes,
+        // Build authorization URL
+        // IMPORTANT: Can only request scopes from ONE resource per authorization
+        // We request Graph scopes here, TDP will need separate consent
+        const authCodeUrlParameters = {
+            scopes: INITIAL_SCOPES, // Graph scopes only (can't mix resources)
+            redirectUri: CONFIG.redirectUri,
+            codeChallenge: codeChallenge,
+            codeChallengeMethod: 'S256',
+            state: state,
         };
 
-        // Start the device code flow (this will block until user authenticates)
-        // We'll run it in the background and poll for completion
-        const authPromise = pca.acquireTokenByDeviceCode(deviceCodeRequest);
+        const authUrl = await cca.getAuthCodeUrl(authCodeUrlParameters);
 
-        // Store the promise and track its completion
-        const requestInfo = {
-            promise: authPromise,
-            completed: false,
-            result: null,
-            error: null,
-            startTime: Date.now(),
-        };
+        console.log('Generated auth URL with state:', state);
 
-        // Track when the promise resolves
-        authPromise
-            .then((result) => {
-                requestInfo.completed = true;
-                requestInfo.result = result;
-                console.log('Device code authentication completed for request:', requestId);
-            })
-            .catch((error) => {
-                requestInfo.completed = true;
-                requestInfo.error = error;
-                console.error('Device code authentication failed for request:', requestId, error);
-            });
-
-        pendingDeviceCodeRequests.set(requestId, requestInfo);
-
-        // Wait for the callback to be called with device code info
-        const deviceCodeInfo = await Promise.race([
-            deviceCodePromise,
-            new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Timeout waiting for device code')), 5000)
-            )
-        ]);
-
-        // Return device code info to client
         res.json({
-            requestId: requestId,
-            userCode: deviceCodeInfo.userCode,
-            verificationUri: deviceCodeInfo.verificationUri,
-            message: deviceCodeInfo.message,
-            expiresIn: deviceCodeInfo.expiresIn,
+            authUrl: authUrl,
+            state: state,
         });
 
     } catch (error) {
@@ -129,38 +109,35 @@ app.post('/api/auth/start', async (req, res) => {
 });
 
 /**
- * POST /api/auth/poll
- * Poll for authentication completion
- * Checks if MSAL's device code flow has completed
+ * POST /api/auth/callback
+ * Handle OAuth callback and exchange code for tokens
+ * Called by frontend after redirect
  */
-app.post('/api/auth/poll', async (req, res) => {
-    const { requestId } = req.body;
+app.post('/api/auth/callback', async (req, res) => {
+    const { code, state } = req.body;
 
     try {
-        const requestInfo = pendingDeviceCodeRequests.get(requestId);
-
-        if (!requestInfo) {
-            return res.status(400).json({ error: 'Invalid request ID' });
+        // Verify state to prevent CSRF
+        const pendingRequest = pendingAuthRequests.get(state);
+        if (!pendingRequest) {
+            return res.status(400).json({ error: 'Invalid or expired state parameter' });
         }
 
-        // Check if authentication has completed
-        if (!requestInfo.completed) {
-            // Still waiting for user to authenticate
-            return res.json({ pending: true });
-        }
+        // Exchange authorization code for tokens
+        // Use same scopes as authorization request (Graph only)
+        const tokenRequest = {
+            code: code,
+            scopes: INITIAL_SCOPES, // Graph scopes only
+            redirectUri: CONFIG.redirectUri,
+            codeVerifier: pendingRequest.codeVerifier,
+        };
 
-        // Check if there was an error
-        if (requestInfo.error) {
-            pendingDeviceCodeRequests.delete(requestId);
-            return res.status(500).json({ error: requestInfo.error.message });
-        }
+        console.log('Exchanging authorization code for tokens...');
 
-        // Authentication completed successfully!
-        const tokenResponse = requestInfo.result;
+        const response = await cca.acquireTokenByCode(tokenRequest);
 
-        // MSAL automatically cached the tokens, so acquireTokenSilent will work
         // Get the account from the token response
-        const account = tokenResponse.account;
+        const account = response.account;
 
         // Create new session with account info
         const sessionId = generateSessionId();
@@ -170,7 +147,7 @@ app.post('/api/auth/poll', async (req, res) => {
         });
 
         // Clean up the pending request
-        pendingDeviceCodeRequests.delete(requestId);
+        pendingAuthRequests.delete(state);
 
         console.log('Created session:', sessionId);
         console.log('Authenticated as:', account.username);
@@ -186,7 +163,7 @@ app.post('/api/auth/poll', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Auth poll error:', error);
+        console.error('Auth callback error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -217,7 +194,7 @@ app.post('/api/auth/token', async (req, res) => {
 
         console.log('Acquiring token silently for scopes:', scopes.join(', '));
 
-        const response = await pca.acquireTokenSilent(silentRequest);
+        const response = await cca.acquireTokenSilent(silentRequest);
 
         console.log('Token acquired successfully for:', session.account.username);
 
@@ -234,7 +211,7 @@ app.post('/api/auth/token', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// PROVISIONING ENDPOINTS
+// PROVISIONING ENDPOINTS (same as public client)
 // ═══════════════════════════════════════════════════════════════
 
 /**
@@ -421,6 +398,7 @@ app.post('/api/provision/bot', async (req, res) => {
         // Bot might already exist, try update
         if (error.response?.status === 409) {
             try {
+                const token = await getTokenForScopes(sessionId, CONFIG.tdpScopes);
                 await axios.post(
                     `${CONFIG.tdpBaseUrl}/api/botframework/${botId}`,
                     {
@@ -481,6 +459,7 @@ app.post('/api/provision/complete', async (req, res) => {
 
 /**
  * Get token for specific scopes using acquireTokenSilent
+ * NOTE: For TDP scopes, admin must pre-consent since we can't request multiple resources in initial auth
  */
 async function getTokenForScopes(sessionId, scopes) {
     const session = sessions.get(sessionId);
@@ -497,11 +476,18 @@ async function getTokenForScopes(sessionId, scopes) {
 
         console.log(`Getting token for scopes: ${scopes.join(', ')}`);
 
-        const response = await pca.acquireTokenSilent(silentRequest);
+        const response = await cca.acquireTokenSilent(silentRequest);
         return response.accessToken;
 
     } catch (error) {
         console.error('Failed to acquire token silently:', error.message);
+
+        // If TDP scopes fail, it's likely because admin hasn't pre-consented
+        const isTdpScope = scopes.some(s => s.includes('dev.teams.microsoft.com'));
+        if (isTdpScope && error.message.includes('AADSTS65001')) {
+            throw new Error('Teams Dev Portal consent required. Admin must pre-consent to AppDefinitions.ReadWrite scope in Azure AD. See README for instructions.');
+        }
+
         throw error;
     }
 }
@@ -510,26 +496,21 @@ function generateSessionId() {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-function decodeJwt(token) {
-    if (!token) {
-        throw new Error('Token is undefined or null');
-    }
+/**
+ * Generate PKCE code verifier (random string)
+ */
+function generateCodeVerifier() {
+    return crypto.randomBytes(32).toString('base64url');
+}
 
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-        throw new Error('Invalid JWT token format');
-    }
-
-    const base64Url = parts[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-        Buffer.from(base64, 'base64')
-            .toString()
-            .split('')
-            .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-            .join('')
-    );
-    return JSON.parse(jsonPayload);
+/**
+ * Generate PKCE code challenge (SHA256 hash of verifier)
+ */
+function generateCodeChallenge(verifier) {
+    return crypto
+        .createHash('sha256')
+        .update(verifier)
+        .digest('base64url');
 }
 
 function createPlaceholderPng() {
@@ -546,13 +527,33 @@ app.get('/health', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`\n🚀 Bot Provisioner Backend running on http://localhost:${PORT}`);
+    console.log(`\n🚀 Bot Provisioner Backend (CONFIDENTIAL CLIENT) running on http://localhost:${PORT}`);
+    console.log(`\n⚙️  Configuration:`);
+    console.log(`   Client ID: ${CONFIG.clientId}`);
+    console.log(`   Redirect URI: ${CONFIG.redirectUri}`);
+    console.log(`   Client Secret: ${CONFIG.clientSecret ? '✓ Set' : '✗ NOT SET - Check environment variable'}`);
     console.log(`\n📋 Available endpoints:`);
-    console.log(`   POST /api/auth/start          - Start device code flow`);
-    console.log(`   POST /api/auth/poll           - Poll for auth completion`);
-    console.log(`   POST /api/provision/aad-app   - Create AAD app`);
+    console.log(`   GET  /api/auth/start            - Get authorization URL`);
+    console.log(`   POST /api/auth/callback         - Handle OAuth callback`);
+    console.log(`   POST /api/provision/aad-app     - Create AAD app`);
     console.log(`   POST /api/provision/client-secret - Generate secret`);
-    console.log(`   POST /api/provision/teams-app - Create Teams app`);
-    console.log(`   POST /api/provision/bot       - Register bot`);
-    console.log(`   POST /api/provision/complete  - Get final credentials\n`);
+    console.log(`   POST /api/provision/teams-app   - Create Teams app`);
+    console.log(`   POST /api/provision/bot         - Register bot`);
+    console.log(`   POST /api/provision/complete    - Get final credentials\n`);
+
+    if (!CONFIG.clientSecret || CONFIG.clientSecret === 'YOUR_CLIENT_SECRET_HERE') {
+        console.log(`⚠️  WARNING: Client secret not configured!`);
+        console.log(`   Set CLIENT_SECRET environment variable before running.`);
+        console.log(`   Example: CLIENT_SECRET=your-secret node server-confidential.js\n`);
+    }
+
+    console.log(`⚠️  IMPORTANT: Teams Dev Portal Consent`);
+    console.log(`   Azure AD doesn't allow requesting scopes from multiple resources in one auth flow.`);
+    console.log(`   Initial auth requests Graph API scopes only.`);
+    console.log(`   For Teams Dev Portal (AppDefinitions.ReadWrite), you must:`);
+    console.log(`   1. Go to Azure AD → App registrations → ${CONFIG.clientId}`);
+    console.log(`   2. API permissions → Add permission → APIs my org uses → "Microsoft Teams"`);
+    console.log(`   3. Search for "AppDefinitions.ReadWrite" → Add permission`);
+    console.log(`   4. Click "Grant admin consent" button`);
+    console.log(`   Without admin pre-consent, bot provisioning will fail at Teams app creation.\n`);
 });
