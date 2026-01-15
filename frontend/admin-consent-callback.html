@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Consent Complete</title>
+</head>
+<body>
+  <h1>Admin Consent</h1>
+  <div id="content">
+    <p>Processing...</p>
+  </div>
+
+  <script>
+    function handleAdminConsentCallback() {
+      const contentDiv = document.getElementById('content');
+      const urlParams = new URLSearchParams(window.location.search);
+      const adminConsent = urlParams.get('admin_consent');
+      const tenant = urlParams.get('tenant');
+      const error = urlParams.get('error');
+      const errorDescription = urlParams.get('error_description');
+
+      if (error) {
+        contentDiv.innerHTML = `
+          <p><strong>Error:</strong> ${error}</p>
+          <p>${errorDescription || 'Unknown error occurred'}</p>
+          <p><a href="/index-confidential.html">Return to Bot Provisioner</a></p>
+        `;
+        return;
+      }
+
+      if (adminConsent === 'True') {
+        contentDiv.innerHTML = `
+          <p><strong>The client is successfully consented for your tenant.</strong></p>
+          <p>Tenant ID: ${tenant}</p>
+          <p><a href="/index-confidential.html">Return to Bot Provisioner</a></p>
+        `;
+      } else {
+        contentDiv.innerHTML = `
+          <p>Unable to determine if admin consent was granted.</p>
+          <p><a href="/index-confidential.html">Return to Bot Provisioner</a></p>
+        `;
+      }
+    }
+
+    handleAdminConsentCallback();
+  </script>
+</body>
+</html>
