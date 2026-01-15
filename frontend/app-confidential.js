@@ -1,18 +1,22 @@
-// ===== CONFIGURATION =====
-// Set this to true if backend is also tunneled, false if backend is on localhost
-const BACKEND_TUNNELED = false; // Change to true when backend tunnel is ready
-
-// Configure backend URL
-const API_BASE = BACKEND_TUNNELED
-  ? 'https://3hvfdfhp-3002.usw2.devtunnels.ms' // Backend tunnel URL
-  : 'http://localhost:3002'; // Backend on localhost (may cause mixed content error on HTTPS)
+// Configuration
+const API_BASE = 'http://localhost:3003/api';
 
 // State
 let sessionId = null;
 let credentials = {};
 
-// Check if returning from OAuth redirect
-window.addEventListener('DOMContentLoaded', () => {
+// ═══════════════════════════════════════════════════════════════
+// PAGE LOAD
+// ═══════════════════════════════════════════════════════════════
+
+window.addEventListener('DOMContentLoaded', async () => {
+  // Check if returning from admin consent
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('consent') === 'granted') {
+    alert('Admin consent granted! Click "Check Scopes" to verify.');
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
   // Check if we have a session from redirect
   const storedSessionId = localStorage.getItem('sessionId');
   const storedUserInfo = localStorage.getItem('userInfo');
@@ -24,41 +28,137 @@ window.addEventListener('DOMContentLoaded', () => {
     // Show authenticated state
     document.getElementById('user-email').textContent = userInfo.username;
     document.getElementById('tenant-id').textContent = userInfo.tenantId;
-    document.getElementById('session-id').textContent = sessionId;
-    document.getElementById('auth-success').style.display = 'block';
-    document.getElementById('btn-auth').style.display = 'none';
+    document.getElementById('auth-status').style.display = 'block';
 
-    // Enable step 2
-    document.getElementById('step-2').disabled = false;
+    // Auto-check scopes after authentication
+    try {
+      await checkAdminConsent();
+    } catch (error) {
+      // Session might be invalid (backend restarted), clear and show message
+      if (error.message.includes('401') || error.message.includes('403')) {
+        console.log('Session expired, clearing localStorage');
+        localStorage.removeItem('sessionId');
+        localStorage.removeItem('userInfo');
+        sessionId = null;
+        document.getElementById('auth-status').style.display = 'none';
+        document.getElementById('scope-check-result').style.display = 'block';
+        document.getElementById('scope-check-result').innerHTML = `
+          <p style="color: orange;"><strong>Session expired.</strong> Please click "Check Scopes" to sign in again.</p>
+        `;
+      }
+    }
   }
 });
 
-// Step 1: Authentication
-document.getElementById('btn-auth').addEventListener('click', async () => {
+// ═══════════════════════════════════════════════════════════════
+// CHECK SCOPES BUTTON
+// ═══════════════════════════════════════════════════════════════
+
+document.getElementById('btn-check-scopes').addEventListener('click', async () => {
+  // If not authenticated, start OAuth flow first
+  if (!sessionId) {
+    try {
+      const response = await fetch(`${API_BASE}/auth/start`, {
+        method: 'GET',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to start authentication');
+      }
+
+      // Redirect user to authorization URL
+      window.location.href = data.authUrl;
+
+    } catch (error) {
+      alert('Authentication error: ' + error.message);
+      console.error(error);
+    }
+    return;
+  }
+
+  // Already authenticated, check scopes
+  await checkAdminConsent();
+});
+
+async function checkAdminConsent() {
+  const resultDiv = document.getElementById('scope-check-result');
+  const startProvisionBtn = document.getElementById('btn-start-provision');
+
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<p>Checking scopes...</p>';
+
   try {
-    const response = await fetch(`${API_BASE}/api/auth/start`, {
-      method: 'GET',
+    const response = await fetch(`${API_BASE}/auth/check-consent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || 'Failed to start authentication');
+      // If 401/403, session is invalid - clear localStorage
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem('sessionId');
+        localStorage.removeItem('userInfo');
+        sessionId = null;
+        document.getElementById('auth-status').style.display = 'none';
+        resultDiv.innerHTML = `<p style="color: orange;"><strong>Session expired.</strong> Please click "Check Scopes" to sign in again.</p>`;
+        throw new Error(`${response.status}: ${data.error}`);
+      }
+      resultDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${data.error}</p>`;
+      return;
     }
 
-    // Store state for verification (optional)
-    localStorage.setItem('authState', data.state);
+    if (data.hasConsent) {
+      // All good! Admin has granted all permissions
+      console.log('✓ Admin consent granted:', data.grantedScopes);
 
-    // Redirect user to authorization URL
-    window.location.href = data.authUrl;
+      resultDiv.innerHTML = `
+        <p style="color: green;"><strong>✓ All required scopes are granted!</strong></p>
+        <p>Granted scopes: ${data.grantedScopes.join(', ')}</p>
+      `;
+
+      // Enable Step 2
+      document.getElementById('step-2').disabled = false;
+
+    } else {
+      // Missing admin consent - show warning
+      console.warn('⚠ Missing permissions:', data.missingScopes);
+
+      resultDiv.innerHTML = `
+        <p style="color: orange;"><strong>⚠️ Admin Consent Required</strong></p>
+        <p>Missing scopes: ${data.missingScopes.join(', ')}</p>
+        <p><strong>Admin Consent URL:</strong></p>
+        <p><input type="text" id="admin-consent-url-inline" value="${data.adminConsentUrl}" readonly style="width: 500px;"></p>
+        <button id="btn-copy-consent-url-inline">Copy URL</button>
+        <p><small>Send this URL to your admin, or click it if you're an admin: <a href="${data.adminConsentUrl}" target="_blank">Consent Now</a></small></p>
+      `;
+
+      // Add copy button handler
+      document.getElementById('btn-copy-consent-url-inline').addEventListener('click', () => {
+        const input = document.getElementById('admin-consent-url-inline');
+        input.select();
+        document.execCommand('copy');
+        alert('Admin consent URL copied to clipboard!');
+      });
+
+      // Keep Step 2 disabled
+      document.getElementById('step-2').disabled = true;
+    }
 
   } catch (error) {
-    alert('Authentication error: ' + error.message);
-    console.error(error);
+    console.error('Check consent error:', error);
+    resultDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
   }
-});
+}
 
-// Step 2: Start provisioning
+// ═══════════════════════════════════════════════════════════════
+// STEP 2: CONFIGURATION
+// ═══════════════════════════════════════════════════════════════
+
 document.getElementById('btn-start-provision').addEventListener('click', async () => {
   const botName = document.getElementById('bot-name').value;
   const botEndpoint = document.getElementById('bot-endpoint').value;
@@ -80,26 +180,40 @@ document.getElementById('btn-start-provision').addEventListener('click', async (
   await runProvisioning(botName, botEndpoint);
 });
 
+// ═══════════════════════════════════════════════════════════════
+// STEP 3: PROVISIONING (REUSED FROM app.js)
+// ═══════════════════════════════════════════════════════════════
+
 async function runProvisioning(botName, botEndpoint) {
   try {
     // Step 3.1: Create AAD App
     updateStatus('provision-aad', 'Creating...');
-    const aadApp = await fetch(`${API_BASE}/api/provision/aad-app`, {
+    const aadAppResponse = await fetch(`${API_BASE}/provision/aad-app`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, appName: botName }),
-    }).then(r => r.json());
+    });
+    const aadApp = await aadAppResponse.json();
+
+    if (!aadAppResponse.ok) {
+      throw new Error(aadApp.error || 'Failed to create AAD app');
+    }
 
     credentials.CLIENT_ID = aadApp.clientId;
     updateStatus('provision-aad', `✓ Created (${aadApp.clientId})`);
 
     // Step 3.2: Generate Client Secret
     updateStatus('provision-secret', 'Generating...');
-    const secret = await fetch(`${API_BASE}/api/provision/client-secret`, {
+    const secretResponse = await fetch(`${API_BASE}/provision/client-secret`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, objectId: aadApp.objectId }),
-    }).then(r => r.json());
+    });
+    const secret = await secretResponse.json();
+
+    if (!secretResponse.ok) {
+      throw new Error(secret.error || 'Failed to generate client secret');
+    }
 
     credentials.CLIENT_SECRET = secret.clientSecret;
     updateStatus('provision-secret', '✓ Generated');
@@ -143,18 +257,23 @@ async function runProvisioning(botName, botEndpoint) {
       validDomains: []
     };
 
-    const teamsApp = await fetch(`${API_BASE}/api/provision/teams-app`, {
+    const teamsAppResponse = await fetch(`${API_BASE}/provision/teams-app`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, manifest }),
-    }).then(r => r.json());
+    });
+    const teamsApp = await teamsAppResponse.json();
+
+    if (!teamsAppResponse.ok) {
+      throw new Error(teamsApp.error || 'Failed to create Teams app');
+    }
 
     credentials.TEAMS_APP_ID = teamsApp.teamsAppId;
     updateStatus('provision-teams', `✓ Created (${teamsApp.teamsAppId})`);
 
     // Step 3.4: Register Bot
     updateStatus('provision-bot', 'Registering...');
-    await fetch(`${API_BASE}/api/provision/bot`, {
+    const botResponse = await fetch(`${API_BASE}/provision/bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -163,13 +282,18 @@ async function runProvisioning(botName, botEndpoint) {
         botName: botName,
         messagingEndpoint: botEndpoint
       }),
-    }).then(r => r.json());
+    });
+    const botResult = await botResponse.json();
+
+    if (!botResponse.ok) {
+      throw new Error(botResult.error || 'Failed to register bot');
+    }
 
     credentials.BOT_ENDPOINT = botEndpoint;
     updateStatus('provision-bot', '✓ Registered');
 
     // Complete
-    const complete = await fetch(`${API_BASE}/api/provision/complete`, {
+    const complete = await fetch(`${API_BASE}/provision/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, credentials }),
@@ -195,6 +319,10 @@ function updateStatus(elementId, status) {
     el.querySelector('span').textContent = status;
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// STEP 4: COMPLETE
+// ═══════════════════════════════════════════════════════════════
 
 function displayCredentials() {
   document.getElementById('cred-client-id').textContent = credentials.CLIENT_ID;
@@ -240,7 +368,6 @@ document.getElementById('btn-download-env').addEventListener('click', () => {
 document.getElementById('btn-start-over').addEventListener('click', () => {
   localStorage.removeItem('sessionId');
   localStorage.removeItem('userInfo');
-  localStorage.removeItem('authState');
   window.location.reload();
 });
 

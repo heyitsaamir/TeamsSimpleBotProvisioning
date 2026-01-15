@@ -4,28 +4,21 @@ const bodyParser = require('body-parser');
 const msal = require('@azure/msal-node');
 const axios = require('axios');
 const AdmZip = require('adm-zip');
-const crypto = require('crypto');
 
 const app = express();
-const PORT = 3002; // Different port to avoid conflict with public client server
+const PORT = 3003;
 
 // Middleware
-app.use(cors({
-    origin: [
-        'http://localhost:8080',
-        'https://3hvfdfhp-8080.usw2.devtunnels.ms',
-        'https://3hvfdfhp-3002.usw2.devtunnels.ms' // Backend tunnel can also receive requests
-    ],
-    credentials: true
-}));
+app.use(cors());
 app.use(bodyParser.json());
 
 // Configuration
 const CONFIG = {
     clientId: '2a098349-9ecc-463f-a053-d5675e10deeb',
-    clientSecret: process.env.CLIENT_SECRET || 'YOUR_CLIENT_SECRET_HERE', // Set via environment variable
+    clientSecret: process.env.CLIENT_SECRET || 'YOUR_CLIENT_SECRET',
     authority: 'https://login.microsoftonline.com/common',
-    redirectUri: 'https://3hvfdfhp-8080.usw2.devtunnels.ms/redirect.html', // Frontend redirect page
+    redirectUri: 'https://3hvfdfhp-8080.usw2.devtunnels.ms/redirect.html',
+    adminConsentRedirectUri: 'https://3hvfdfhp-8080.usw2.devtunnels.ms/admin-consent-callback.html',
     graphBaseUrl: 'https://graph.microsoft.com/v1.0',
     tdpBaseUrl: 'https://dev.teams.microsoft.com',
     graphScopes: [
@@ -37,65 +30,46 @@ const CONFIG = {
     ],
 };
 
-// IMPORTANT: Azure AD doesn't allow requesting scopes from multiple resources in one request
-// We can only request Graph scopes OR TDP scopes, not both
-// Solution: Request Graph scopes first, then use acquireTokenSilent for TDP (may require admin pre-consent)
-const INITIAL_SCOPES = CONFIG.graphScopes; // Start with Graph API scopes only
-
-// In-memory session storage (use Redis in production)
+// In-memory session storage
 const sessions = new Map();
 
-// Store PKCE code verifiers and states
-const pendingAuthRequests = new Map();
-
-// MSAL Confidential Client
-const msalConfig = {
+// Confidential Client Application
+const cca = new msal.ConfidentialClientApplication({
     auth: {
         clientId: CONFIG.clientId,
         authority: CONFIG.authority,
         clientSecret: CONFIG.clientSecret,
+    },
+    system: {
+        loggerOptions: {
+            loggerCallback(loglevel, message) {
+                console.log(message);
+            },
+            piiLoggingEnabled: false,
+            logLevel: msal.LogLevel.Info,
+        }
     }
-};
-const cca = new msal.ConfidentialClientApplication(msalConfig);
+});
 
 // ═══════════════════════════════════════════════════════════════
-// AUTHENTICATION ENDPOINTS
+// AUTHENTICATION ENDPOINTS (CONFIDENTIAL CLIENT)
 // ═══════════════════════════════════════════════════════════════
 
 /**
  * GET /api/auth/start
- * Start authorization code flow (confidential client)
- * Returns authorization URL for user to visit
+ * Start OAuth authorization code flow with User.Read scope only
  */
 app.get('/api/auth/start', async (req, res) => {
     try {
-        // Generate PKCE code verifier and challenge
-        const codeVerifier = generateCodeVerifier();
-        const codeChallenge = generateCodeChallenge(codeVerifier);
-
-        // Generate state for CSRF protection
         const state = generateSessionId();
 
-        // Store PKCE verifier and state for later verification
-        pendingAuthRequests.set(state, {
-            codeVerifier,
-            createdAt: Date.now(),
-        });
-
-        // Build authorization URL
-        // IMPORTANT: Can only request scopes from ONE resource per authorization
-        // We request Graph scopes here, TDP will need separate consent
         const authCodeUrlParameters = {
-            scopes: INITIAL_SCOPES, // Graph scopes only (can't mix resources)
+            scopes: ['User.Read'], // Minimal scope - always works
             redirectUri: CONFIG.redirectUri,
-            codeChallenge: codeChallenge,
-            codeChallengeMethod: 'S256',
             state: state,
         };
 
         const authUrl = await cca.getAuthCodeUrl(authCodeUrlParameters);
-
-        console.log('Generated auth URL with state:', state);
 
         res.json({
             authUrl: authUrl,
@@ -111,54 +85,33 @@ app.get('/api/auth/start', async (req, res) => {
 /**
  * POST /api/auth/callback
  * Handle OAuth callback and exchange code for tokens
- * Called by frontend after redirect
  */
 app.post('/api/auth/callback', async (req, res) => {
     const { code, state } = req.body;
 
     try {
-        // Verify state to prevent CSRF
-        const pendingRequest = pendingAuthRequests.get(state);
-        if (!pendingRequest) {
-            return res.status(400).json({ error: 'Invalid or expired state parameter' });
-        }
-
-        // Exchange authorization code for tokens
-        // Use same scopes as authorization request (Graph only)
         const tokenRequest = {
             code: code,
-            scopes: INITIAL_SCOPES, // Graph scopes only
+            scopes: ['User.Read'],
             redirectUri: CONFIG.redirectUri,
-            codeVerifier: pendingRequest.codeVerifier,
         };
-
-        console.log('Exchanging authorization code for tokens...');
 
         const response = await cca.acquireTokenByCode(tokenRequest);
 
-        // Get the account from the token response
-        const account = response.account;
-
-        // Create new session with account info
+        // Create session
         const sessionId = generateSessionId();
         sessions.set(sessionId, {
-            account: account,
+            account: response.account,
             createdAt: Date.now(),
         });
 
-        // Clean up the pending request
-        pendingAuthRequests.delete(state);
-
-        console.log('Created session:', sessionId);
-        console.log('Authenticated as:', account.username);
-        console.log('Tokens cached by MSAL for acquireTokenSilent');
+        console.log('User authenticated:', response.account.username);
 
         res.json({
-            success: true,
             sessionId: sessionId,
             userInfo: {
-                username: account.username,
-                tenantId: account.tenantId,
+                username: response.account.username,
+                tenantId: response.account.tenantId,
             }
         });
 
@@ -169,54 +122,82 @@ app.post('/api/auth/callback', async (req, res) => {
 });
 
 /**
- * POST /api/auth/token
- * Get token for specific scopes using acquireTokenSilent()
+ * POST /api/auth/check-consent
+ * Check if admin has granted all required permissions by trying to acquire tokens
  */
-app.post('/api/auth/token', async (req, res) => {
-    const { sessionId, scopes } = req.body;
+app.post('/api/auth/check-consent', async (req, res) => {
+    const { sessionId } = req.body;
 
     const session = sessions.get(sessionId);
     if (!session) {
         return res.status(401).json({ error: 'Invalid session' });
     }
 
-    if (!session.account) {
-        return res.status(401).json({ error: 'No account in session' });
-    }
-
     try {
-        // Use acquireTokenSilent to get token for specific scopes
-        const silentRequest = {
-            account: session.account,
-            scopes: scopes,
-            forceRefresh: false,
-        };
+        // Try to acquire token silently for Graph scopes
+        // If admin consent is granted, this will succeed
+        // If not, it will fail with consent error
 
-        console.log('Acquiring token silently for scopes:', scopes.join(', '));
+        const grantedScopes = [];
+        const missingScopes = [];
 
-        const response = await cca.acquireTokenSilent(silentRequest);
+        // Test Graph scopes
+        for (const scope of CONFIG.graphScopes) {
+            try {
+                const silentRequest = {
+                    account: session.account,
+                    scopes: [scope],
+                    forceRefresh: false,
+                };
+                await cca.acquireTokenSilent(silentRequest);
+                grantedScopes.push(scope.split('/').pop()); // Extract scope name
+            } catch (error) {
+                missingScopes.push(scope.split('/').pop());
+            }
+        }
 
-        console.log('Token acquired successfully for:', session.account.username);
+        // Test TDP scopes
+        for (const scope of CONFIG.tdpScopes) {
+            try {
+                const silentRequest = {
+                    account: session.account,
+                    scopes: [scope],
+                    forceRefresh: false,
+                };
+                await cca.acquireTokenSilent(silentRequest);
+                grantedScopes.push(scope.split('/').pop());
+            } catch (error) {
+                missingScopes.push(scope.split('/').pop());
+            }
+        }
 
-        res.json({ token: response.accessToken });
+        if (missingScopes.length > 0) {
+            return res.json({
+                hasConsent: false,
+                missingScopes: missingScopes,
+                grantedScopes: grantedScopes,
+                adminConsentUrl: `https://login.microsoftonline.com/${session.account.tenantId}/adminconsent?client_id=${CONFIG.clientId}&redirect_uri=${encodeURIComponent(CONFIG.adminConsentRedirectUri)}`,
+            });
+        }
+
+        res.json({
+            hasConsent: true,
+            grantedScopes: grantedScopes,
+        });
 
     } catch (error) {
-        console.error('acquireTokenSilent error:', error);
-        res.status(403).json({
-            error: 'Failed to acquire token silently',
-            details: error.message,
-            needsAuth: true
-        });
+        console.error('Check consent error:', error.response?.data || error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 
 // ═══════════════════════════════════════════════════════════════
-// PROVISIONING ENDPOINTS (same as public client)
+// PROVISIONING ENDPOINTS (REUSED FROM server.js)
 // ═══════════════════════════════════════════════════════════════
 
 /**
  * POST /api/provision/aad-app
- * Create Azure AD application using acquireTokenSilent
+ * Create Azure AD application
  */
 app.post('/api/provision/aad-app', async (req, res) => {
     const { sessionId, appName } = req.body;
@@ -227,10 +208,8 @@ app.post('/api/provision/aad-app', async (req, res) => {
     }
 
     try {
-        // Get token for Graph API scopes using acquireTokenSilent
         const token = await getTokenForScopes(sessionId, CONFIG.graphScopes);
 
-        // Create AAD App
         const response = await axios.post(
             `${CONFIG.graphBaseUrl}/applications`,
             {
@@ -260,7 +239,7 @@ app.post('/api/provision/aad-app', async (req, res) => {
 
 /**
  * POST /api/provision/client-secret
- * Generate client secret for AAD app using acquireTokenSilent
+ * Generate client secret for AAD app
  */
 app.post('/api/provision/client-secret', async (req, res) => {
     const { sessionId, objectId } = req.body;
@@ -271,7 +250,6 @@ app.post('/api/provision/client-secret', async (req, res) => {
     }
 
     try {
-        // Get token for Graph API scopes using acquireTokenSilent
         const token = await getTokenForScopes(sessionId, CONFIG.graphScopes);
 
         const expireDate = new Date();
@@ -306,7 +284,7 @@ app.post('/api/provision/client-secret', async (req, res) => {
 
 /**
  * POST /api/provision/teams-app
- * Create Teams app using acquireTokenSilent
+ * Create Teams app
  */
 app.post('/api/provision/teams-app', async (req, res) => {
     const { sessionId, manifest } = req.body;
@@ -317,7 +295,6 @@ app.post('/api/provision/teams-app', async (req, res) => {
     }
 
     try {
-        // Get token for Teams Dev Portal scopes using acquireTokenSilent
         const token = await getTokenForScopes(sessionId, CONFIG.tdpScopes);
 
         // Create zip file with manifest
@@ -358,7 +335,7 @@ app.post('/api/provision/teams-app', async (req, res) => {
 
 /**
  * POST /api/provision/bot
- * Register bot with Bot Framework using acquireTokenSilent
+ * Register bot with Bot Framework
  */
 app.post('/api/provision/bot', async (req, res) => {
     const { sessionId, botId, botName, messagingEndpoint } = req.body;
@@ -369,7 +346,6 @@ app.post('/api/provision/bot', async (req, res) => {
     }
 
     try {
-        // Get token for Teams Dev Portal scopes using acquireTokenSilent
         const token = await getTokenForScopes(sessionId, CONFIG.tdpScopes);
 
         const response = await axios.post(
@@ -439,7 +415,6 @@ app.post('/api/provision/complete', async (req, res) => {
         return res.status(401).json({ error: 'Invalid session' });
     }
 
-    // Get tenant ID from cached account
     const tenantId = session.account ? session.account.tenantId : null;
 
     const fullCredentials = {
@@ -457,10 +432,6 @@ app.post('/api/provision/complete', async (req, res) => {
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Get token for specific scopes using acquireTokenSilent
- * NOTE: For TDP scopes, admin must pre-consent since we can't request multiple resources in initial auth
- */
 async function getTokenForScopes(sessionId, scopes) {
     const session = sessions.get(sessionId);
     if (!session || !session.account) {
@@ -481,36 +452,12 @@ async function getTokenForScopes(sessionId, scopes) {
 
     } catch (error) {
         console.error('Failed to acquire token silently:', error.message);
-
-        // If TDP scopes fail, it's likely because admin hasn't pre-consented
-        const isTdpScope = scopes.some(s => s.includes('dev.teams.microsoft.com'));
-        if (isTdpScope && error.message.includes('AADSTS65001')) {
-            throw new Error('Teams Dev Portal consent required. Admin must pre-consent to AppDefinitions.ReadWrite scope in Azure AD. See README for instructions.');
-        }
-
         throw error;
     }
 }
 
 function generateSessionId() {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
-
-/**
- * Generate PKCE code verifier (random string)
- */
-function generateCodeVerifier() {
-    return crypto.randomBytes(32).toString('base64url');
-}
-
-/**
- * Generate PKCE code challenge (SHA256 hash of verifier)
- */
-function generateCodeChallenge(verifier) {
-    return crypto
-        .createHash('sha256')
-        .update(verifier)
-        .digest('base64url');
 }
 
 function createPlaceholderPng() {
@@ -527,33 +474,14 @@ app.get('/health', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`\n🚀 Bot Provisioner Backend (CONFIDENTIAL CLIENT) running on http://localhost:${PORT}`);
-    console.log(`\n⚙️  Configuration:`);
-    console.log(`   Client ID: ${CONFIG.clientId}`);
-    console.log(`   Redirect URI: ${CONFIG.redirectUri}`);
-    console.log(`   Client Secret: ${CONFIG.clientSecret ? '✓ Set' : '✗ NOT SET - Check environment variable'}`);
+    console.log(`\n🚀 Bot Provisioner Backend (Confidential Client) running on http://localhost:${PORT}`);
     console.log(`\n📋 Available endpoints:`);
-    console.log(`   GET  /api/auth/start            - Get authorization URL`);
-    console.log(`   POST /api/auth/callback         - Handle OAuth callback`);
-    console.log(`   POST /api/provision/aad-app     - Create AAD app`);
+    console.log(`   GET  /api/auth/start           - Start OAuth flow (User.Read)`);
+    console.log(`   POST /api/auth/callback        - OAuth callback handler`);
+    console.log(`   POST /api/auth/check-consent   - Check admin consent status`);
+    console.log(`   POST /api/provision/aad-app    - Create AAD app`);
     console.log(`   POST /api/provision/client-secret - Generate secret`);
-    console.log(`   POST /api/provision/teams-app   - Create Teams app`);
-    console.log(`   POST /api/provision/bot         - Register bot`);
-    console.log(`   POST /api/provision/complete    - Get final credentials\n`);
-
-    if (!CONFIG.clientSecret || CONFIG.clientSecret === 'YOUR_CLIENT_SECRET_HERE') {
-        console.log(`⚠️  WARNING: Client secret not configured!`);
-        console.log(`   Set CLIENT_SECRET environment variable before running.`);
-        console.log(`   Example: CLIENT_SECRET=your-secret node server-confidential.js\n`);
-    }
-
-    console.log(`⚠️  IMPORTANT: Teams Dev Portal Consent`);
-    console.log(`   Azure AD doesn't allow requesting scopes from multiple resources in one auth flow.`);
-    console.log(`   Initial auth requests Graph API scopes only.`);
-    console.log(`   For Teams Dev Portal (AppDefinitions.ReadWrite), you must:`);
-    console.log(`   1. Go to Azure AD → App registrations → ${CONFIG.clientId}`);
-    console.log(`   2. API permissions → Add permission → APIs my org uses → "Microsoft Teams"`);
-    console.log(`   3. Search for "AppDefinitions.ReadWrite" → Add permission`);
-    console.log(`   4. Click "Grant admin consent" button`);
-    console.log(`   Without admin pre-consent, bot provisioning will fail at Teams app creation.\n`);
+    console.log(`   POST /api/provision/teams-app  - Create Teams app`);
+    console.log(`   POST /api/provision/bot        - Register bot`);
+    console.log(`   POST /api/provision/complete   - Get final credentials\n`);
 });

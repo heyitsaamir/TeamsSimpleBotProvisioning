@@ -4,83 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bot Provisioner (Confidential Client)</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      max-width: 800px;
-      margin: 40px auto;
-      padding: 20px;
-    }
-    h1 {
-      color: #5e5e5e;
-    }
-    fieldset {
-      margin: 20px 0;
-      padding: 20px;
-      border: 2px solid #ddd;
-      border-radius: 8px;
-    }
-    legend {
-      padding: 0 10px;
-      font-weight: bold;
-      color: #333;
-    }
-    button {
-      background: #0078d4;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    button:hover {
-      background: #106ebe;
-    }
-    button:disabled {
-      background: #ccc;
-      cursor: not-allowed;
-    }
-    input[type="text"], input[type="url"] {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .info-badge {
-      background: #e6f3ff;
-      color: #0078d4;
-      padding: 10px;
-      border-radius: 4px;
-      margin: 10px 0;
-    }
-  </style>
 </head>
 <body>
   <h1>Bot Provisioner (Confidential Client)</h1>
-  <p>Provision a Microsoft Teams bot using OAuth 2.0 Authorization Code Flow with PKCE.</p>
-
-  <div class="info-badge">
-    <strong>Authentication Method:</strong> Authorization Code Flow (Confidential Client)
-    <br>
-    <strong>Server Port:</strong> 3002 (vs 3001 for public client)
-  </div>
+  <p>Provision a Microsoft Teams bot by completing all steps below.</p>
 
   <hr>
 
-  <!-- Step 1: Authentication -->
+  <!-- Step 1: Check Scopes & Authenticate -->
   <fieldset id="step-1">
-    <legend><strong>Step 1: Authenticate</strong></legend>
+    <legend><strong>Step 1: Check Scopes</strong></legend>
 
-    <p>Authenticate with Microsoft 365 using OAuth 2.0 Authorization Code Flow</p>
-    <button id="btn-auth">Sign in with Microsoft</button>
+    <p>Check if your organization has granted the required permissions.</p>
+    <button id="btn-check-scopes">Check Scopes</button>
 
-    <div id="auth-success" style="display: none;">
+    <div id="auth-status" style="display: none; margin-top: 10px;">
       <p>✓ Authenticated as: <span id="user-email"></span></p>
       <p>Tenant ID: <span id="tenant-id"></span></p>
-      <p>Session ID: <span id="session-id"></span></p>
     </div>
+
+    <div id="scope-check-result" style="display: none; margin-top: 10px;"></div>
   </fieldset>
 
   <hr>
@@ -126,36 +69,36 @@
 
     <p><strong>Your bot has been provisioned. Here are your credentials:</strong></p>
 
-    <table border="1" style="width: 100%; border-collapse: collapse;">
+    <table border="1">
       <tr>
-        <td style="padding: 8px;"><strong>CLIENT_ID</strong></td>
-        <td style="padding: 8px;"><code id="cred-client-id"></code></td>
-        <td style="padding: 8px;"><button class="btn-copy" data-copy="cred-client-id">Copy</button></td>
+        <td>CLIENT_ID</td>
+        <td><code id="cred-client-id"></code></td>
+        <td><button class="btn-copy" data-copy="cred-client-id">Copy</button></td>
       </tr>
       <tr>
-        <td style="padding: 8px;"><strong>CLIENT_SECRET</strong></td>
-        <td style="padding: 8px;"><code id="cred-client-secret"></code></td>
-        <td style="padding: 8px;"><button class="btn-copy" data-copy="cred-client-secret">Copy</button></td>
+        <td>CLIENT_SECRET</td>
+        <td><code id="cred-client-secret"></code></td>
+        <td><button class="btn-copy" data-copy="cred-client-secret">Copy</button></td>
       </tr>
       <tr>
-        <td style="padding: 8px;"><strong>TENANT_ID</strong></td>
-        <td style="padding: 8px;"><code id="cred-tenant-id"></code></td>
-        <td style="padding: 8px;"><button class="btn-copy" data-copy="cred-tenant-id">Copy</button></td>
+        <td>TENANT_ID</td>
+        <td><code id="cred-tenant-id"></code></td>
+        <td><button class="btn-copy" data-copy="cred-tenant-id">Copy</button></td>
       </tr>
       <tr>
-        <td style="padding: 8px;"><strong>TEAMS_APP_ID</strong></td>
-        <td style="padding: 8px;"><code id="cred-teams-app-id"></code></td>
-        <td style="padding: 8px;"><button class="btn-copy" data-copy="cred-teams-app-id">Copy</button></td>
+        <td>TEAMS_APP_ID</td>
+        <td><code id="cred-teams-app-id"></code></td>
+        <td><button class="btn-copy" data-copy="cred-teams-app-id">Copy</button></td>
       </tr>
       <tr>
-        <td style="padding: 8px;"><strong>BOT_ENDPOINT</strong></td>
-        <td style="padding: 8px;"><code id="cred-bot-endpoint"></code></td>
-        <td style="padding: 8px;"><button class="btn-copy" data-copy="cred-bot-endpoint">Copy</button></td>
+        <td>BOT_ENDPOINT</td>
+        <td><code id="cred-bot-endpoint"></code></td>
+        <td><button class="btn-copy" data-copy="cred-bot-endpoint">Copy</button></td>
       </tr>
     </table>
 
     <h3>.env file content:</h3>
-    <pre id="env-file-content" style="background: #f5f5f5; padding: 15px; border-radius: 4px;"></pre>
+    <pre id="env-file-content"></pre>
     <button id="btn-download-env">Download .env</button>
 
     <hr>
