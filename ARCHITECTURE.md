@@ -1,179 +1,190 @@
-# Architecture
+# Bot Provisioner - Technical Architecture
 
-## Overview
+## System Participants
 
-A Node.js/Express backend that provisions Microsoft Teams bots using the Microsoft 365 Agents Toolkit's authentication approach. Uses MSAL for OAuth 2.0 Device Code Flow and acquires tokens for multiple resources (Microsoft Graph + Teams Dev Portal).
+### CodeWriterApp (CWA)
+The confidential client application that orchestrates bot provisioning. Runs as a web server with:
+- **Backend**: Node.js server with MSAL confidential client (port 3003)
+- **Frontend**: Static HTML/JS served via HTTP server (port 8080)
+- **Registered in**: CWA's own Azure AD tenant
+- **Multi-tenant**: Yes - can provision bots for any tenant that grants consent
 
-## Components
+### Azure AD (CWA Tenant)
+The identity provider where CWA is registered as a multi-tenant application. Handles:
+- OAuth authorization code flow for user authentication
+- Token issuance for accessing Microsoft Graph and Teams Dev Portal
+- Admin consent grants (tenant-wide permissions)
 
-```
-┌─────────────┐         ┌──────────────┐         ┌─────────────┐
-│   Browser   │────────▶│   Express    │────────▶│   MSAL      │
-│  (Frontend) │         │   Backend    │         │   Library   │
-└─────────────┘         └──────────────┘         └─────────────┘
-                               │                         │
-                               │                         │
-                               ▼                         ▼
-                        ┌──────────────┐         ┌─────────────┐
-                        │   Sessions   │         │  Azure AD   │
-                        │  (In-Memory) │         │   Tokens    │
-                        └──────────────┘         └─────────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   External APIs:    │
-                    │  • Microsoft Graph  │
-                    │  • Teams Dev Portal │
-                    └─────────────────────┘
-```
+### User (User Tenant)
+An end user from any Microsoft 365 tenant who wants to provision a bot. The user:
+- Authenticates via OAuth to CWA
+- Must have sufficient permissions to create apps in their tenant
+- May need their tenant admin to grant consent for required permissions
 
-## Authentication Flow
+### Teams Developer Portal Backend (TDP)
+Microsoft's backend service for Teams app management (`https://dev.teams.microsoft.com`). Provides APIs for:
+- Creating Teams app definitions
+- Registering bot endpoints
+- Checking tenant sideloading status
+- **Requires**: `AppDefinitions.ReadWrite` scope
 
-### 1. Device Code Initiation
-```javascript
-POST /api/auth/start
-```
-- MSAL calls `acquireTokenByDeviceCode()` with Graph scopes
-- Returns device code + user code + verification URL
-- MSAL handles token acquisition in background
-- Stores pending request with promise tracking
+### Microsoft Graph Backend
+Microsoft's unified API endpoint (`https://graph.microsoft.com`). Provides APIs for:
+- Creating Azure AD app registrations
+- Generating client secrets
+- Managing app permissions
+- **Requires**: `Application.ReadWrite.All` scope
 
-**Key:** MSAL automatically caches tokens for `acquireTokenSilent()` to work.
+## Requirements for Bot Provisioning
 
-### 2. Polling for Completion
-```javascript
-POST /api/auth/poll
-```
-- Frontend polls every 3 seconds
-- Backend checks if MSAL promise resolved
-- When complete: extracts account info, creates session
-- Session stores account object (not raw tokens)
+For CWA to successfully provision a Teams bot for a user, the following conditions must be met:
 
-### 3. Silent Token Acquisition
-```javascript
-await pca.acquireTokenSilent({
-  account: session.account,
-  scopes: ['https://dev.teams.microsoft.com/AppDefinitions.ReadWrite']
-})
-```
-- MSAL uses cached refresh token
-- Gets new access token for different resource
-- No user interaction needed
-- Works across resource servers (Graph → TDP)
+### 1. User Authentication
+- User must authenticate with CWA using OAuth 2.0 authorization code flow
+- Minimum scope: `User.Read` (always grantable by user)
+
+### 2. Admin Consent
+The user's tenant admin must grant consent for these delegated permissions:
+- **Graph API**: `Application.ReadWrite.All` - Create Azure AD apps and secrets
+- **Graph API**: `TeamsAppInstallation.ReadForUser` - Query installed Teams apps (optional)
+- **Teams Dev Portal**: `AppDefinitions.ReadWrite` - Create Teams apps and register bots
+
+### 3. User Permissions
+The authenticated user must have roles in their tenant allowing:
+- Creating app registrations in Azure AD (typically requires Application Administrator role)
+- Creating Teams apps via Developer Portal
+
+### 4. Tenant Settings
+- **Sideloading**: Tenant must allow custom app uploads (verifiable via TDP API)
+- **App Registration**: Tenant must allow users to register applications (Azure AD setting)
+
+### 5. Bot Endpoint
+- User must provide an HTTPS endpoint where the bot will be hosted
+- Endpoint must be accessible from Microsoft Teams infrastructure
 
 ## Provisioning Flow
 
+```mermaid
+sequenceDiagram
+    participant User
+    participant CWA Frontend
+    participant CWA Backend
+    participant Azure AD
+    participant Graph API
+    participant TDP API
+
+    Note over User,TDP API: Initial Authentication & Consent Check
+
+    User->>CWA Frontend: Click "Check Scopes"
+    CWA Frontend->>CWA Backend: GET /api/auth/start
+    CWA Backend->>Azure AD: Generate auth URL (User.Read)
+    Azure AD-->>CWA Backend: Authorization URL
+    CWA Backend-->>CWA Frontend: Return auth URL
+    CWA Frontend->>Azure AD: Redirect user to auth URL
+    Azure AD->>User: Show Microsoft login
+    User->>Azure AD: Authenticate + consent to User.Read
+    Azure AD->>CWA Frontend: Redirect with auth code
+    CWA Frontend->>CWA Backend: POST /api/auth/callback (code)
+    CWA Backend->>Azure AD: Exchange code for tokens
+    Azure AD-->>CWA Backend: Access token + refresh token
+    CWA Backend-->>CWA Frontend: Session ID + user info
+
+    Note over User,TDP API: Scope Verification
+
+    CWA Frontend->>CWA Backend: POST /api/auth/check-consent (sessionId)
+    loop For each required scope
+        CWA Backend->>Azure AD: acquireTokenSilent(scope)
+        alt Scope granted
+            Azure AD-->>CWA Backend: Access token
+        else Scope missing
+            Azure AD-->>CWA Backend: consent_required error
+        end
+    end
+    CWA Backend-->>CWA Frontend: Granted + missing scopes
+
+    alt Missing scopes
+        CWA Frontend->>User: Display admin consent URL
+        User->>Azure AD: Admin clicks consent URL
+        Azure AD->>User: Show admin consent screen
+        User->>Azure AD: Admin grants tenant-wide consent
+        Azure AD->>CWA Frontend: Redirect to consent callback
+        CWA Frontend->>User: Show "Consent granted" message
+        User->>CWA Frontend: Click "Check Scopes" again
+        Note over CWA Backend,Azure AD: Now acquireTokenSilent succeeds
+    end
+
+    Note over User,TDP API: Sideloading Check
+
+    User->>CWA Frontend: Click "Check Sideloading"
+    CWA Frontend->>CWA Backend: POST /api/check-sideloading (sessionId)
+    CWA Backend->>Azure AD: acquireTokenSilent(TDP scope)
+    Azure AD-->>CWA Backend: TDP access token
+    CWA Backend->>TDP API: GET /api/usersettings/mtUserAppPolicy
+    TDP API-->>CWA Backend: isSideloadingAllowed: true/false
+    CWA Backend-->>CWA Frontend: Sideloading status
+    CWA Frontend->>User: Display sideloading status
+
+    Note over User,TDP API: Bot Provisioning
+
+    User->>CWA Frontend: Fill bot details + click "Start Provisioning"
+
+    CWA Frontend->>CWA Backend: POST /api/provision/aad-app (sessionId, appName)
+    CWA Backend->>Azure AD: acquireTokenSilent(Graph scope)
+    Azure AD-->>CWA Backend: Graph access token
+    CWA Backend->>Graph API: POST /applications (create app)
+    Graph API-->>CWA Backend: App created (clientId, objectId)
+    CWA Backend-->>CWA Frontend: Return clientId
+
+    CWA Frontend->>CWA Backend: POST /api/provision/client-secret (sessionId, objectId)
+    CWA Backend->>Azure AD: acquireTokenSilent(Graph scope)
+    Azure AD-->>CWA Backend: Graph access token
+    CWA Backend->>Graph API: POST /applications/{id}/addPassword
+    Graph API-->>CWA Backend: Client secret generated
+    CWA Backend-->>CWA Frontend: Return clientSecret
+
+    CWA Frontend->>CWA Backend: POST /api/provision/teams-app (sessionId, manifest)
+    CWA Backend->>Azure AD: acquireTokenSilent(TDP scope)
+    Azure AD-->>CWA Backend: TDP access token
+    CWA Backend->>TDP API: POST /api/appdefinitions/v2/import (app package)
+    TDP API-->>CWA Backend: Teams app created (teamsAppId)
+    CWA Backend-->>CWA Frontend: Return teamsAppId
+
+    CWA Frontend->>CWA Backend: POST /api/provision/bot (sessionId, botId, endpoint)
+    CWA Backend->>Azure AD: acquireTokenSilent(TDP scope)
+    Azure AD-->>CWA Backend: TDP access token
+    CWA Backend->>TDP API: POST /api/botframework (register bot)
+    TDP API-->>CWA Backend: Bot registered
+    CWA Backend-->>CWA Frontend: Success
+
+    CWA Frontend->>User: Display credentials (clientId, secret, teamsAppId)
 ```
-1. Create AAD App          → Graph API
-   GET token via acquireTokenSilent(graphScopes)
-   POST /v1.0/applications
 
-2. Generate Client Secret  → Graph API
-   GET token via acquireTokenSilent(graphScopes)
-   POST /v1.0/applications/{id}/addPassword
+## Key Technical Details
 
-3. Create Teams App        → TDP API
-   GET token via acquireTokenSilent(tdpScopes)  ← Different resource!
-   POST /api/appdefinitions/v2/import
+### Token Acquisition Strategy
+CWA uses a two-phase token acquisition approach:
 
-4. Register Bot            → TDP API
-   GET token via acquireTokenSilent(tdpScopes)
-   POST /api/botframework
-```
+1. **Initial auth**: Request only `User.Read` scope - this always succeeds, allowing users to sign in even without admin consent
+2. **Subsequent requests**: Use `acquireTokenSilent()` with cached refresh token to obtain tokens for admin-consented scopes
 
-## Key Technical Decisions
+This pattern avoids blocking users at sign-in while clearly indicating which permissions are missing.
 
-### Why MSAL's acquireTokenByDeviceCode()?
-- Automatically caches tokens + refresh tokens
-- Makes `acquireTokenSilent()` work seamlessly
-- Manual token requests don't populate MSAL cache
+### Multi-Resource Token Management
+The provisioning flow requires tokens for two different resource servers:
+- **Microsoft Graph**: For Azure AD app management
+- **Teams Dev Portal**: For Teams app and bot management
 
-### Why In-Memory Sessions?
-- Simple for demo purposes
-- Stores account objects (for MSAL), not tokens
-- Production: use Redis or similar
+Azure AD does not allow requesting scopes from multiple resources in a single auth request. CWA handles this by:
+- Authenticating once with `User.Read`
+- Using the cached refresh token to silently acquire tokens for each resource as needed
 
-### Why Two Token Requests?
-OAuth 2.0 limitation: one access token per resource server.
-- **Token 1:** `https://graph.microsoft.com` (for AAD operations)
-- **Token 2:** `https://dev.teams.microsoft.com` (for Teams operations)
+### Error Handling
+When `acquireTokenSilent()` fails, CWA distinguishes between:
+- **Expected**: `consent_required`, `interaction_required`, `invalid_grant` with AADSTS65001 → Show admin consent URL
+- **Unexpected**: Network errors, token expiration, unknown errors → Return error to user
 
-Both use same cached refresh token via `acquireTokenSilent()`.
-
-### Why Device Code Flow?
-- Perfect for CLI/desktop apps (no browser redirect needed)
-- User authenticates on any device
-- Matches Microsoft 365 Agents Toolkit CLI behavior
-
-### Why No Client Secret?
-
-**Public Client vs Confidential Client:**
-
-OAuth 2.0 has two client types:
-
-| Type | Can Store Secrets? | Examples | Auth Method |
-|------|-------------------|----------|-------------|
-| **Confidential** | ✅ Yes (server-side) | Backend APIs, web servers | `client_id` + `client_secret` |
-| **Public** | ❌ No (runs on user device) | Mobile apps, SPAs, CLI tools | `client_id` only |
-
-**Device Code Flow = Public Client**
-
-The client ID we use (`7ea7c24c-b1f6-4a20-9d11-9ae12e9e7ac0`) is registered in Azure AD as a **public client**:
-- No secret required (or even allowed)
-- Anyone can use this client ID
-- Security comes from **user authentication**, not client authentication
-- Device code itself acts as a temporary secret (expires in ~15 minutes)
-
-**Why this is secure:**
-- Can't embed secrets in CLI tools (users could extract them)
-- User must authenticate with their own credentials
-- Device code is single-use and short-lived
-- Azure AD validates the user, not the client
-
-This is why tools like `az login`, `gh auth login`, and `teamsapp login` don't need secrets.
-
-## Session Management
-
-```javascript
-sessions.set(sessionId, {
-  account: {
-    homeAccountId: '...',
-    tenantId: '...',
-    username: '...',
-    // ... MSAL account object
-  },
-  createdAt: Date.now()
-})
-```
-
-**Important:** We only store the account object. MSAL stores all tokens (access tokens, refresh tokens) in its own internal cache (in-memory for this demo, `~/.fx/account/` in the real CLI). When we call `acquireTokenSilent()`, MSAL uses the account to lookup cached tokens.
-
-## API Endpoints
-
-| Endpoint | Purpose | Auth Required |
-|----------|---------|---------------|
-| `POST /api/auth/start` | Start device code flow | No |
-| `POST /api/auth/poll` | Check auth completion | No |
-| `POST /api/provision/aad-app` | Create Azure AD app | Session |
-| `POST /api/provision/client-secret` | Generate secret | Session |
-| `POST /api/provision/teams-app` | Create Teams app | Session |
-| `POST /api/provision/bot` | Register bot | Session |
-
-All provisioning endpoints use `getTokenForScopes()` helper which calls `acquireTokenSilent()`.
-
-## Security
-
-- No secrets in code (only public CLI client ID)
-- No tokens stored in session (MSAL manages them)
-- CORS enabled for local development only
-- Sessions stored in-memory (ephemeral)
-
-## Differences from Real CLI
-
-| CLI | This Demo |
-|-----|-----------|
-| File-based token cache (~/.fx) | In-memory sessions |
-| Authorization Code Flow (browser) | Device Code Flow (any device) |
-| Persistent across restarts | Ephemeral (restart clears state) |
-
-Core MSAL usage is identical.
+### Session Management
+- Sessions stored in-memory on backend (Map keyed by sessionId)
+- Frontend stores sessionId and userInfo in localStorage
+- MSAL handles token caching internally
+- Sessions lost on backend restart (in-memory only)
