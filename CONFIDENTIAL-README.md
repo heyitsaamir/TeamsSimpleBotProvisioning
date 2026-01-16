@@ -16,14 +16,15 @@ Simplified implementation that uses confidential client for auth/consent checkin
 
 ## Quick Start
 
-1. **Set your client secret:**
+1. **Set environment variables:**
    ```bash
    export CLIENT_SECRET=your_secret_here
+   export ENDPOINT_BASE=https://your-tunnel-url
    ```
 
 2. **Run the start script:**
    ```bash
-   ./start.sh
+   ./start-confidential.sh
    ```
 
 This will:
@@ -33,13 +34,13 @@ This will:
 
 ## Configuration
 
-Update redirect URIs in Azure AD app registration:
-- `https://YOUR_TUNNEL/redirect.html`
-- `https://YOUR_TUNNEL/admin-consent-callback.html`
+Update redirect URIs in Azure AD app registration to match your `ENDPOINT_BASE`:
+- `${ENDPOINT_BASE}/redirect.html`
+- `${ENDPOINT_BASE}/admin-consent-callback.html`
 
 Then access via your tunnel:
 ```
-https://YOUR_TUNNEL/index-confidential.html
+${ENDPOINT_BASE}/index-confidential.html
 ```
 
 ## How It Works
@@ -87,6 +88,7 @@ https://YOUR_TUNNEL/index-confidential.html
 ## Environment Variables
 
 - `CLIENT_SECRET` - Azure AD client secret (required)
+- `ENDPOINT_BASE` - Base URL for redirect URIs (default: `https://3hvfdfhp-8080.usw2.devtunnels.ms`)
 
 ## Ports
 

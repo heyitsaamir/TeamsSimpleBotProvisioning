@@ -33,6 +33,14 @@ if [ -z "$CLIENT_SECRET" ]; then
     echo ""
 fi
 
+# Check if ENDPOINT_BASE is set
+if [ -z "$ENDPOINT_BASE" ]; then
+    echo "⚠️  ENDPOINT_BASE environment variable is not set"
+    echo "   Set it with: export ENDPOINT_BASE=https://your-tunnel-url"
+    echo "   Using default: https://3hvfdfhp-8080.usw2.devtunnels.ms"
+    echo ""
+fi
+
 # Install backend dependencies if needed
 if [ ! -d "backend/node_modules" ]; then
     echo "📦 Installing backend dependencies..."

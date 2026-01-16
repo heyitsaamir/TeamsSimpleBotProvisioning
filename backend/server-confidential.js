@@ -13,12 +13,14 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Configuration
+const ENDPOINT_BASE = process.env.ENDPOINT_BASE || 'https://3hvfdfhp-8080.usw2.devtunnels.ms';
+
 const CONFIG = {
-    clientId: '2a098349-9ecc-463f-a053-d5675e10deeb',
+    clientId: '22eb633f-f8bb-4818-90a6-ffac6de52b01',
     clientSecret: process.env.CLIENT_SECRET || 'YOUR_CLIENT_SECRET',
     authority: 'https://login.microsoftonline.com/common',
-    redirectUri: 'https://3hvfdfhp-8080.usw2.devtunnels.ms/redirect.html',
-    adminConsentRedirectUri: 'https://3hvfdfhp-8080.usw2.devtunnels.ms/admin-consent-callback.html',
+    redirectUri: `${ENDPOINT_BASE}/redirect.html`,
+    adminConsentRedirectUri: `${ENDPOINT_BASE}/admin-consent-callback.html`,
     graphBaseUrl: 'https://graph.microsoft.com/v1.0',
     tdpBaseUrl: 'https://dev.teams.microsoft.com',
     graphScopes: [
@@ -156,9 +158,15 @@ app.post('/api/auth/check-consent', async (req, res) => {
             } catch (error) {
                 const scopeName = scope.split('/').pop();
                 const errorCode = error.errorCode || error.name;
+                const errorMessage = error.message || '';
 
                 // Check if it's an expected consent error vs unexpected error
-                if (errorCode === 'consent_required' || errorCode === 'interaction_required') {
+                const isConsentError =
+                    errorCode === 'consent_required' ||
+                    errorCode === 'interaction_required' ||
+                    (errorCode === 'invalid_grant' && (errorMessage.includes('AADSTS65001') || errorMessage.includes('has not consented')));
+
+                if (isConsentError) {
                     // Expected: Admin hasn't consented yet
                     missingScopes.push(scopeName);
                     scopeErrors[scopeName] = errorCode;
@@ -185,9 +193,15 @@ app.post('/api/auth/check-consent', async (req, res) => {
             } catch (error) {
                 const scopeName = scope.split('/').pop();
                 const errorCode = error.errorCode || error.name;
+                const errorMessage = error.message || '';
 
                 // Check if it's an expected consent error vs unexpected error
-                if (errorCode === 'consent_required' || errorCode === 'interaction_required') {
+                const isConsentError =
+                    errorCode === 'consent_required' ||
+                    errorCode === 'interaction_required' ||
+                    (errorCode === 'invalid_grant' && (errorMessage.includes('AADSTS65001') || errorMessage.includes('has not consented')));
+
+                if (isConsentError) {
                     // Expected: Admin hasn't consented yet
                     missingScopes.push(scopeName);
                     scopeErrors[scopeName] = errorCode;
@@ -256,7 +270,7 @@ app.post('/api/check-sideloading', async (req, res) => {
         res.json({
             isSideloadingAllowed: isSideloadingAllowed,
             status: isSideloadingAllowed === true ? 'enabled' :
-                    isSideloadingAllowed === false ? 'disabled' : 'unknown'
+                isSideloadingAllowed === false ? 'disabled' : 'unknown'
         });
 
     } catch (error) {
