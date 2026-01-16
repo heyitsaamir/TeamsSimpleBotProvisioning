@@ -140,6 +140,7 @@ app.post('/api/auth/check-consent', async (req, res) => {
 
         const grantedScopes = [];
         const missingScopes = [];
+        const scopeErrors = {}; // Track error reasons for debugging
 
         // Test Graph scopes
         for (const scope of CONFIG.graphScopes) {
@@ -151,8 +152,22 @@ app.post('/api/auth/check-consent', async (req, res) => {
                 };
                 await cca.acquireTokenSilent(silentRequest);
                 grantedScopes.push(scope.split('/').pop()); // Extract scope name
+                console.log(`✓ Scope granted: ${scope}`);
             } catch (error) {
-                missingScopes.push(scope.split('/').pop());
+                const scopeName = scope.split('/').pop();
+                const errorCode = error.errorCode || error.name;
+
+                // Check if it's an expected consent error vs unexpected error
+                if (errorCode === 'consent_required' || errorCode === 'interaction_required') {
+                    // Expected: Admin hasn't consented yet
+                    missingScopes.push(scopeName);
+                    scopeErrors[scopeName] = errorCode;
+                    console.log(`✗ Scope missing (needs consent): ${scope} - ${errorCode}`);
+                } else {
+                    // Unexpected error - log and fail
+                    console.error(`❌ Unexpected error for scope ${scope}:`, errorCode, error.message);
+                    throw new Error(`Failed to check scope ${scopeName}: ${errorCode || error.message}`);
+                }
             }
         }
 
@@ -166,8 +181,22 @@ app.post('/api/auth/check-consent', async (req, res) => {
                 };
                 await cca.acquireTokenSilent(silentRequest);
                 grantedScopes.push(scope.split('/').pop());
+                console.log(`✓ Scope granted: ${scope}`);
             } catch (error) {
-                missingScopes.push(scope.split('/').pop());
+                const scopeName = scope.split('/').pop();
+                const errorCode = error.errorCode || error.name;
+
+                // Check if it's an expected consent error vs unexpected error
+                if (errorCode === 'consent_required' || errorCode === 'interaction_required') {
+                    // Expected: Admin hasn't consented yet
+                    missingScopes.push(scopeName);
+                    scopeErrors[scopeName] = errorCode;
+                    console.log(`✗ Scope missing (needs consent): ${scope} - ${errorCode}`);
+                } else {
+                    // Unexpected error - log and fail
+                    console.error(`❌ Unexpected error for scope ${scope}:`, errorCode, error.message);
+                    throw new Error(`Failed to check scope ${scopeName}: ${errorCode || error.message}`);
+                }
             }
         }
 
@@ -176,10 +205,12 @@ app.post('/api/auth/check-consent', async (req, res) => {
                 hasConsent: false,
                 missingScopes: missingScopes,
                 grantedScopes: grantedScopes,
+                scopeErrors: scopeErrors, // Include error details for debugging
                 adminConsentUrl: `https://login.microsoftonline.com/${session.account.tenantId}/adminconsent?client_id=${CONFIG.clientId}&redirect_uri=${encodeURIComponent(CONFIG.adminConsentRedirectUri)}`,
             });
         }
 
+        console.log('✓ All required scopes granted');
         res.json({
             hasConsent: true,
             grantedScopes: grantedScopes,
@@ -187,6 +218,58 @@ app.post('/api/auth/check-consent', async (req, res) => {
 
     } catch (error) {
         console.error('Check consent error:', error.response?.data || error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/check-sideloading
+ * Check if tenant has sideloading enabled using Teams Dev Portal API
+ */
+app.post('/api/check-sideloading', async (req, res) => {
+    const { sessionId } = req.body;
+
+    const session = sessions.get(sessionId);
+    if (!session) {
+        return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    try {
+        // Get token for Teams Dev Portal
+        const token = await getTokenForScopes(sessionId, CONFIG.tdpScopes);
+
+        // Call Teams Dev Portal API to check sideloading status
+        const response = await axios.get(
+            `${CONFIG.tdpBaseUrl}/api/usersettings/mtUserAppPolicy`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                }
+            }
+        );
+
+        const isSideloadingAllowed = response.data?.value?.isSideloadingAllowed;
+
+        console.log(`Sideloading status: ${isSideloadingAllowed ? 'Enabled' : 'Disabled'}`);
+
+        res.json({
+            isSideloadingAllowed: isSideloadingAllowed,
+            status: isSideloadingAllowed === true ? 'enabled' :
+                    isSideloadingAllowed === false ? 'disabled' : 'unknown'
+        });
+
+    } catch (error) {
+        console.error('Check sideloading error:', error.response?.data || error.message);
+
+        // If it's a consent error, tell user they need TDP access
+        if (error.message?.includes('consent_required') || error.message?.includes('interaction_required')) {
+            return res.status(403).json({
+                error: 'Teams Dev Portal access required',
+                needsConsent: true
+            });
+        }
+
         res.status(500).json({ error: error.message });
     }
 });
@@ -479,6 +562,7 @@ app.listen(PORT, () => {
     console.log(`   GET  /api/auth/start           - Start OAuth flow (User.Read)`);
     console.log(`   POST /api/auth/callback        - OAuth callback handler`);
     console.log(`   POST /api/auth/check-consent   - Check admin consent status`);
+    console.log(`   POST /api/check-sideloading    - Check tenant sideloading status`);
     console.log(`   POST /api/provision/aad-app    - Create AAD app`);
     console.log(`   POST /api/provision/client-secret - Generate secret`);
     console.log(`   POST /api/provision/teams-app  - Create Teams app`);

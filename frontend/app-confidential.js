@@ -121,12 +121,24 @@ async function checkAdminConsent() {
         <p>Granted scopes: ${data.grantedScopes.join(', ')}</p>
       `;
 
-      // Enable Step 2
+      // Enable Step 2 and Check Sideloading button
       document.getElementById('step-2').disabled = false;
+      document.getElementById('btn-check-sideloading').disabled = false;
 
     } else {
       // Missing admin consent - show warning
       console.warn('⚠ Missing permissions:', data.missingScopes);
+      console.log('Error details:', data.scopeErrors);
+
+      // Build error details for debugging
+      let errorDetails = '';
+      if (data.scopeErrors) {
+        errorDetails = '<details style="margin-top: 10px;"><summary><small>Debug info (error reasons)</small></summary><ul style="font-size: 12px;">';
+        for (const [scope, error] of Object.entries(data.scopeErrors)) {
+          errorDetails += `<li>${scope}: ${error}</li>`;
+        }
+        errorDetails += '</ul></details>';
+      }
 
       resultDiv.innerHTML = `
         <p style="color: orange;"><strong>⚠️ Admin Consent Required</strong></p>
@@ -135,6 +147,7 @@ async function checkAdminConsent() {
         <p><input type="text" id="admin-consent-url-inline" value="${data.adminConsentUrl}" readonly style="width: 500px;"></p>
         <button id="btn-copy-consent-url-inline">Copy URL</button>
         <p><small>Send this URL to your admin, or click it if you're an admin: <a href="${data.adminConsentUrl}" target="_blank">Consent Now</a></small></p>
+        ${errorDetails}
       `;
 
       // Add copy button handler
@@ -151,6 +164,65 @@ async function checkAdminConsent() {
 
   } catch (error) {
     console.error('Check consent error:', error);
+    resultDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHECK SIDELOADING BUTTON
+// ═══════════════════════════════════════════════════════════════
+
+document.getElementById('btn-check-sideloading').addEventListener('click', async () => {
+  await checkSideloading();
+});
+
+async function checkSideloading() {
+  const resultDiv = document.getElementById('sideloading-check-result');
+
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<p>Checking sideloading status...</p>';
+
+  try {
+    const response = await fetch(`${API_BASE}/check-sideloading`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 403 && data.needsConsent) {
+        resultDiv.innerHTML = `
+          <p style="color: orange;"><strong>⚠️ Cannot check sideloading</strong></p>
+          <p>Teams Dev Portal access required. Please ensure admin consent is granted for AppDefinitions.ReadWrite scope.</p>
+        `;
+      } else {
+        resultDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${data.error}</p>`;
+      }
+      return;
+    }
+
+    if (data.status === 'enabled') {
+      resultDiv.innerHTML = `
+        <p style="color: green;"><strong>✓ Sideloading is ENABLED</strong></p>
+        <p>Your organization allows custom app sideloading in Microsoft Teams.</p>
+      `;
+    } else if (data.status === 'disabled') {
+      resultDiv.innerHTML = `
+        <p style="color: red;"><strong>✗ Sideloading is DISABLED</strong></p>
+        <p>Your organization does not allow custom app sideloading.</p>
+        <p><small>Contact your Teams administrator to enable sideloading: <a href="https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/build-and-test/prepare-your-o365-tenant#enable-custom-teams-apps-and-turn-on-custom-app-uploading" target="_blank">Learn more</a></small></p>
+      `;
+    } else {
+      resultDiv.innerHTML = `
+        <p style="color: gray;"><strong>? Sideloading status unknown</strong></p>
+        <p>Unable to determine sideloading status.</p>
+      `;
+    }
+
+  } catch (error) {
+    console.error('Check sideloading error:', error);
     resultDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
   }
 }

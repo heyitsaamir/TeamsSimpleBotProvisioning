@@ -13,10 +13,11 @@
 
   <!-- Step 1: Check Scopes & Authenticate -->
   <fieldset id="step-1">
-    <legend><strong>Step 1: Check Scopes</strong></legend>
+    <legend><strong>Step 1: Check Permissions & Sideloading</strong></legend>
 
     <p>Check if your organization has granted the required permissions.</p>
     <button id="btn-check-scopes">Check Scopes</button>
+    <button id="btn-check-sideloading" style="margin-left: 10px;" disabled>Check Sideloading</button>
 
     <div id="auth-status" style="display: none; margin-top: 10px;">
       <p>✓ Authenticated as: <span id="user-email"></span></p>
@@ -24,6 +25,7 @@
     </div>
 
     <div id="scope-check-result" style="display: none; margin-top: 10px;"></div>
+    <div id="sideloading-check-result" style="display: none; margin-top: 10px;"></div>
   </fieldset>
 
   <hr>
