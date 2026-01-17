@@ -21,6 +21,12 @@ An end user from any Microsoft 365 tenant who wants to provision a bot. The user
 - Must have sufficient permissions to create apps in their tenant
 - May need their tenant admin to grant consent for required permissions
 
+### Admin (User Tenant)
+A tenant administrator in the same tenant as the User. The admin:
+- Has permissions to grant tenant-wide consent for applications
+- Receives admin consent URL from User when permissions are needed
+- Grants consent for CWA to access Graph and TDP APIs on behalf of users in their tenant
+
 ### Teams Developer Portal Backend (TDP)
 Microsoft's backend service for Teams app management (`https://dev.teams.microsoft.com`). Provides APIs for:
 - Creating Teams app definitions
