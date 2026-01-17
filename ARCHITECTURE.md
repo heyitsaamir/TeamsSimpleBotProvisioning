@@ -182,9 +182,3 @@ Azure AD does not allow requesting scopes from multiple resources in a single au
 When `acquireTokenSilent()` fails, CWA distinguishes between:
 - **Expected**: `consent_required`, `interaction_required`, `invalid_grant` with AADSTS65001 → Show admin consent URL
 - **Unexpected**: Network errors, token expiration, unknown errors → Return error to user
-
-### Session Management
-- Sessions stored in-memory on backend (Map keyed by sessionId)
-- Frontend stores sessionId and userInfo in localStorage
-- MSAL handles token caching internally
-- Sessions lost on backend restart (in-memory only)
