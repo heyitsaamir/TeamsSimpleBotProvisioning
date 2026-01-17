@@ -11,7 +11,24 @@
 // Configuration - adjust to match your backend
 const API_BASE = 'http://localhost:3003/api';
 
-// Session state (stored in localStorage for persistence across page reloads)
+/**
+ * Session State - How We Track the User Across Requests
+ *
+ * The sessionId acts as our way to maintain state for the authenticated user:
+ * - After OAuth callback, backend creates a session and returns sessionId
+ * - We store sessionId in localStorage (persists across page reloads)
+ * - We send sessionId with EVERY backend API request
+ * - Backend uses sessionId to look up the user's account object
+ * - This allows backend to call acquireTokenSilent() for that user
+ *
+ * What's stored here:
+ * - sessionId: Random identifier for the session
+ * - userInfo: Basic user info (username, tenantId) for display only
+ *
+ * What's NOT stored:
+ * - Tokens (backend manages these via MSAL)
+ * - Secrets (never in frontend)
+ */
 let sessionId = localStorage.getItem('sessionId');
 let userInfo = null;
 

@@ -86,12 +86,33 @@ const cca = new msal.ConfidentialClientApplication({
 });
 
 /**
- * In-Memory Session Storage
+ * In-Memory Session Storage - How We Track User State
  *
- * Stores user account information keyed by sessionId.
- * In production, use a persistent store like Redis.
+ * Sessions are how we store state for each authenticated user. When a user
+ * authenticates, we create a session that contains their MSAL account object.
+ *
+ * Why sessions?
+ * - Track which user is making API requests
+ * - Store the account object needed for acquireTokenSilent()
+ * - Associate requests with the correct user's tokens
+ *
+ * What's stored in a session:
+ * - account: MSAL account object (username, tenantId, homeAccountId)
+ * - createdAt: Timestamp for session expiration
+ *
+ * What's NOT stored:
+ * - Tokens (MSAL caches these internally)
+ * - Secrets (never store in session)
+ *
+ * Flow:
+ * 1. User authenticates → we create session with account object
+ * 2. Return sessionId to frontend
+ * 3. Frontend sends sessionId with each request
+ * 4. We look up session → get account object → use for acquireTokenSilent()
  *
  * Structure: Map<sessionId, { account: MSALAccount, createdAt: timestamp }>
+ *
+ * Production note: Use Redis or similar persistent store instead of in-memory Map.
  */
 const sessions = new Map();
 
@@ -173,10 +194,12 @@ app.post('/api/auth/callback', async (req, res) => {
         // Exchange authorization code for tokens
         const response = await cca.acquireTokenByCode(tokenRequest);
 
-        // Create session with account information
+        // Create session to store user state
+        // This session tracks this user across subsequent requests and stores
+        // the account object needed for acquireTokenSilent() calls later
         const sessionId = generateSessionId();
         sessions.set(sessionId, {
-            account: response.account,
+            account: response.account,  // MSAL account object (NOT tokens)
             createdAt: Date.now(),
         });
 
@@ -626,10 +649,16 @@ app.post('/api/provision/bot', async (req, res) => {
 /**
  * Acquires an access token for the specified scopes using silent acquisition.
  *
- * This uses the cached refresh token to get a new access token without
- * requiring user interaction. Works across different resource servers.
+ * This demonstrates how sessions are used to maintain user state:
+ * 1. Frontend sends sessionId with request
+ * 2. We look up session to get the account object
+ * 3. Pass account to MSAL for acquireTokenSilent()
+ * 4. MSAL uses the cached refresh token to get new access token
+ *
+ * Works across different resource servers (Graph, TDP) without user interaction.
  */
 async function getTokenForScopes(sessionId, scopes) {
+    // Look up user's session to get their account object
     const session = sessions.get(sessionId);
     if (!session || !session.account) {
         throw new Error('Invalid session or no account');
@@ -637,7 +666,7 @@ async function getTokenForScopes(sessionId, scopes) {
 
     try {
         const silentRequest = {
-            account: session.account,
+            account: session.account,  // Account from session (stored during auth)
             scopes: scopes,
             forceRefresh: false,
         };
