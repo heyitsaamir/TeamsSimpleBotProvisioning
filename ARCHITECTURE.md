@@ -3,11 +3,11 @@
 ## System Participants
 
 ### CodeWriterApp (CWA)
-The confidential client application that orchestrates bot provisioning. Runs as a web server with:
-- **Backend**: Node.js server with MSAL confidential client (port 3003)
-- **Frontend**: Static HTML/JS served via HTTP server (port 8080)
-- **Registered in**: CWA's own Azure AD tenant
-- **Multi-tenant**: Yes - can provision bots for any tenant that grants consent
+The confidential client application that orchestrates bot provisioning. Key characteristics:
+- **Backend**: Server component that handles OAuth flows and API calls to Graph/TDP
+- **Frontend**: User interface for authentication, consent checking, and bot provisioning
+- **Registered in**: CWA's own Azure AD tenant as a multi-tenant application
+- **Authentication**: Uses OAuth 2.0 authorization code flow with client secret (confidential client)
 
 ### Azure AD (CWA Tenant)
 The identity provider where CWA is registered as a multi-tenant application. Handles:
