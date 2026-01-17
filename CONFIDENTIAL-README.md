@@ -51,10 +51,9 @@ ${ENDPOINT_BASE}/index-confidential.html
 - User can always sign in (no admin blocking)
 
 ### Step 2: Consent Check
-- Backend queries service principal via Graph API
+- Backend attempts to acquire tokens for required scopes
 - Checks if these scopes are granted:
   - `Application.ReadWrite.All` (Graph)
-  - `TeamsAppInstallation.ReadForUser` (Graph)
   - `AppDefinitions.ReadWrite` (Teams Dev Portal)
 
 ### Step 3a: If Admin Consent Missing

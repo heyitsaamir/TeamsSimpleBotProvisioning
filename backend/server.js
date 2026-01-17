@@ -19,8 +19,7 @@ const CONFIG = {
     graphBaseUrl: 'https://graph.microsoft.com/v1.0',
     tdpBaseUrl: 'https://dev.teams.microsoft.com',
     graphScopes: [
-        'https://graph.microsoft.com/Application.ReadWrite.All',
-        'https://graph.microsoft.com/TeamsAppInstallation.ReadForUser'
+        'https://graph.microsoft.com/Application.ReadWrite.All'
     ],
     tdpScopes: [
         'https://dev.teams.microsoft.com/AppDefinitions.ReadWrite'

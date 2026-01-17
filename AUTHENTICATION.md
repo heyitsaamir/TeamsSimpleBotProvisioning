@@ -43,9 +43,8 @@ The demo uses **OAuth 2.0 Device Code Flow**, which is perfect for CLI/desktop a
    ```
    POST https://login.microsoftonline.com/common/oauth2/v2.0/devicecode
    ```
-   - Requests Graph API scopes ONLY:
+   - Requests Graph API scope:
      - `https://graph.microsoft.com/Application.ReadWrite.All`
-     - `https://graph.microsoft.com/TeamsAppInstallation.ReadForUser`
    - **Important**: Cannot mix scopes from different resource servers! Each token is for ONE resource.
    - Teams Dev Portal scopes (`https://dev.teams.microsoft.com/*`) will be acquired later
    - Returns a user code and device code

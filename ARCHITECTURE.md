@@ -52,7 +52,6 @@ For CWA to successfully provision a Teams bot for a user, the following conditio
 ### 2. Admin Consent
 The user's tenant admin must grant consent for these delegated permissions:
 - **Graph API**: `Application.ReadWrite.All` - Create Azure AD apps and secrets
-- **Graph API**: `TeamsAppInstallation.ReadForUser` - Query installed Teams apps (optional)
 - **Teams Dev Portal**: `AppDefinitions.ReadWrite` - Create Teams apps and register bots
 
 ### 3. User Permissions
