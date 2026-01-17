@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Consent - Bot Provisioner</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 700px;
+            margin: 60px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+        }
+        .success {
+            background: #e8f5e9;
+            padding: 30px;
+            border-left: 4px solid #4caf50;
+            border-radius: 4px;
+        }
+        .error {
+            background: #ffebee;
+            padding: 30px;
+            border-left: 4px solid #f44336;
+            border-radius: 4px;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        a {
+            color: #0078d4;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div id="content"></div>
+
+    <script>
+        /**
+         * Admin Consent Callback Handler
+         *
+         * This page handles the redirect after an admin grants (or denies) consent.
+         * Azure AD redirects here with query parameters indicating the result.
+         *
+         * Query parameters:
+         * - admin_consent: "True" if consent was granted
+         * - tenant: The tenant ID where consent was granted
+         * - error: Error code if consent was denied
+         * - error_description: Human-readable error description
+         */
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const adminConsent = urlParams.get('admin_consent');
+        const tenant = urlParams.get('tenant');
+        const error = urlParams.get('error');
+        const errorDescription = urlParams.get('error_description');
+
+        const contentDiv = document.getElementById('content');
+
+        if (error) {
+            // Admin denied consent or an error occurred
+            contentDiv.innerHTML = `
+                <div class="error">
+                    <h1>❌ Admin Consent Failed</h1>
+                    <p><strong>Error:</strong> ${error}</p>
+                    <p>${errorDescription || 'The administrator did not grant consent for the requested permissions.'}</p>
+                    <div class="info">
+                        <p><strong>What this means:</strong></p>
+                        <p>Without admin consent, the Bot Provisioner cannot access Microsoft Graph and Teams Developer Portal APIs on behalf of users in your tenant.</p>
+                        <p>Please contact your tenant administrator to grant the required permissions.</p>
+                    </div>
+                    <p><a href="/index.html">Return to Bot Provisioner</a></p>
+                </div>
+            `;
+        } else if (adminConsent === 'True') {
+            // Admin successfully granted consent
+            contentDiv.innerHTML = `
+                <div class="success">
+                    <h1>✓ Admin Consent Granted</h1>
+                    <p><strong>The client is successfully consented for your tenant.</strong></p>
+                    <p><strong>Tenant ID:</strong> ${tenant}</p>
+                    <div class="info">
+                        <p><strong>What happens next:</strong></p>
+                        <ul>
+                            <li>Users in your tenant can now use the Bot Provisioner</li>
+                            <li>The application can create Azure AD apps and Teams bots on behalf of authorized users</li>
+                            <li>Return to the main page and click "Check Scopes" to verify permissions</li>
+                        </ul>
+                    </div>
+                    <p><a href="/index.html">Return to Bot Provisioner</a></p>
+                </div>
+            `;
+        } else {
+            // Unexpected state - missing parameters
+            contentDiv.innerHTML = `
+                <div class="error">
+                    <h1>⚠️ Invalid Response</h1>
+                    <p>The admin consent callback did not receive expected parameters.</p>
+                    <p>This might happen if you navigated directly to this page.</p>
+                    <p><a href="/index.html">Return to Bot Provisioner</a></p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

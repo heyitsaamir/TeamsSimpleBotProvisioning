@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Provisioner - Reference Implementation</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #0078d4;
+            padding-bottom: 10px;
+        }
+
+        fieldset {
+            margin: 20px 0;
+            padding: 20px;
+            border: 2px solid #e1e1e1;
+            border-radius: 4px;
+        }
+
+        legend {
+            font-weight: bold;
+            padding: 0 10px;
+        }
+
+        button {
+            background: #0078d4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover:not(:disabled) {
+            background: #005a9e;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .info {
+            background: #e1f5fe;
+            padding: 15px;
+            border-left: 4px solid #0078d4;
+            margin: 15px 0;
+        }
+
+        .success {
+            background: #e8f5e9;
+            padding: 15px;
+            border-left: 4px solid #4caf50;
+            margin: 15px 0;
+        }
+
+        .warning {
+            background: #fff3e0;
+            padding: 15px;
+            border-left: 4px solid #ff9800;
+            margin: 15px 0;
+        }
+
+        .error {
+            background: #ffebee;
+            padding: 15px;
+            border-left: 4px solid #f44336;
+            margin: 15px 0;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        label {
+            display: block;
+            margin-top: 10px;
+            font-weight: 500;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .deep-link {
+            word-break: break-all;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🤖 Bot Provisioner - Reference Implementation</h1>
+
+    <div class="info">
+        <strong>About this application:</strong>
+        <p>This is a reference implementation demonstrating how to build a confidential OAuth client that provisions Microsoft Teams bots. The application uses OAuth 2.0 authorization code flow to authenticate users, checks for admin consent, and calls Microsoft Graph and Teams Developer Portal APIs to create the bot.</p>
+    </div>
+
+    <!-- Authentication Status -->
+    <div id="auth-status" class="hidden">
+        <div class="success">
+            <strong>✓ Authenticated as:</strong> <span id="username"></span>
+        </div>
+    </div>
+
+    <!-- Step 1: Check Permissions & Sideloading -->
+    <fieldset id="step-1">
+        <legend><strong>Step 1: Check Permissions & Sideloading</strong></legend>
+
+        <p>First, authenticate and check if your tenant admin has granted the required permissions.</p>
+
+        <button id="btn-check-scopes">Check Scopes</button>
+        <button id="btn-check-sideloading" disabled>Check Sideloading</button>
+
+        <div id="scope-check-result" class="hidden"></div>
+        <div id="sideloading-check-result" class="hidden"></div>
+    </fieldset>
+
+    <!-- Step 2: Bot Provisioning -->
+    <fieldset id="step-2" class="hidden">
+        <legend><strong>Step 2: Provision Bot</strong></legend>
+
+        <p>Fill in the bot details and click "Start Provisioning" to create the bot.</p>
+
+        <label for="bot-name">Bot Display Name:</label>
+        <input type="text" id="bot-name" placeholder="e.g., My Teams Bot" value="My Teams Bot">
+
+        <label for="bot-endpoint">Bot Messaging Endpoint:</label>
+        <input type="text" id="bot-endpoint" placeholder="e.g., https://your-bot.azurewebsites.net/api/messages">
+
+        <div class="info">
+            <strong>Note:</strong> Your bot endpoint must be an HTTPS URL that will receive messages from Teams. It should end with <code>/api/messages</code>.
+        </div>
+
+        <button id="btn-provision" style="margin-top: 15px;">Start Provisioning</button>
+
+        <div id="provision-progress" class="hidden"></div>
+    </fieldset>
+
+    <!-- Step 3: Results -->
+    <fieldset id="step-3" class="hidden">
+        <legend><strong>Step 3: Bot Credentials & Installation</strong></legend>
+
+        <div class="success">
+            <strong>✓ Bot provisioned successfully!</strong>
+            <p>Save these credentials to your <code>.env</code> file:</p>
+        </div>
+
+        <pre id="credentials"></pre>
+
+        <div class="warning">
+            <strong>⚠️ Important:</strong>
+            <ul>
+                <li>Save <code>BOT_PASSWORD</code> immediately - it cannot be retrieved later</li>
+                <li>Never commit the <code>.env</code> file to version control</li>
+                <li>Store secrets securely (use Azure Key Vault in production)</li>
+            </ul>
+        </div>
+
+        <h3>Install in Microsoft Teams</h3>
+        <p>Click the link below to install your bot in Teams:</p>
+        <div class="deep-link">
+            <a id="teams-deep-link" href="#" target="_blank">Open in Microsoft Teams</a>
+        </div>
+    </fieldset>
+
+    <script src="app.js"></script>
+</body>
+</html>
