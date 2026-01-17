@@ -66,6 +66,7 @@ The authenticated user must have roles in their tenant allowing:
 
 ```mermaid
 sequenceDiagram
+    participant Admin
     participant User
     participant CWA Frontend
     participant CWA Backend
@@ -73,25 +74,23 @@ sequenceDiagram
     participant Graph API
     participant TDP API
 
-    Note over User,TDP API: Initial Authentication & Consent Check
+    Note over Admin,TDP API: Initial Authentication & Consent Check
 
-    User->>CWA Frontend: Click "Check Scopes"
+    User->>CWA Frontend: Begin Scope Check
     CWA Frontend->>CWA Backend: GET /api/auth/start
     CWA Backend->>Azure AD: Generate auth URL (User.Read)
     Azure AD-->>CWA Backend: Authorization URL
     CWA Backend-->>CWA Frontend: Return auth URL
-    CWA Frontend->>Azure AD: Redirect user to auth URL
+    CWA Frontend->>Azure AD: Redirect user to auth URL (on AAD)
     Azure AD->>User: Show Microsoft login
     User->>Azure AD: Authenticate + consent to User.Read
     Azure AD->>CWA Frontend: Redirect with auth code
     CWA Frontend->>CWA Backend: POST /api/auth/callback (code)
     CWA Backend->>Azure AD: Exchange code for tokens
     Azure AD-->>CWA Backend: Access token + refresh token
-    CWA Backend-->>CWA Frontend: Session ID + user info
 
-    Note over User,TDP API: Scope Verification
+    Note over Admin,TDP API: Scope Verification
 
-    CWA Frontend->>CWA Backend: POST /api/auth/check-consent (sessionId)
     loop For each required scope
         CWA Backend->>Azure AD: acquireTokenSilent(scope)
         alt Scope granted
@@ -104,16 +103,18 @@ sequenceDiagram
 
     alt Missing scopes
         CWA Frontend->>User: Display admin consent URL
-        User->>Azure AD: Admin clicks consent URL
-        Azure AD->>User: Show admin consent screen
-        User->>Azure AD: Admin grants tenant-wide consent
+        User-->>Admin: Informs Admin and gives them URL
+        Admin->>Azure AD: Admin clicks consent URL
+        Azure AD->>Admin: Show admin consent screen
+        Admin->>Azure AD: Admin grants tenant-wide consent for CWA AAD App
         Azure AD->>CWA Frontend: Redirect to consent callback
-        CWA Frontend->>User: Show "Consent granted" message
-        User->>CWA Frontend: Click "Check Scopes" again
+        CWA Frontend->>Admin: Show "Consent granted" message
+        Admin-->>User: Informs user that their request was granted
+        User->>CWA Frontend: Begin scope check again
         Note over CWA Backend,Azure AD: Now acquireTokenSilent succeeds
     end
 
-    Note over User,TDP API: Sideloading Check
+    Note over Admin,TDP API: Sideloading Check
 
     User->>CWA Frontend: Click "Check Sideloading"
     CWA Frontend->>CWA Backend: POST /api/check-sideloading (sessionId)
@@ -124,39 +125,33 @@ sequenceDiagram
     CWA Backend-->>CWA Frontend: Sideloading status
     CWA Frontend->>User: Display sideloading status
 
-    Note over User,TDP API: Bot Provisioning
+    Note over Admin,TDP API: Bot Provisioning
 
-    User->>CWA Frontend: Fill bot details + click "Start Provisioning"
+    User->>CWA Frontend: Assuming Bot details (name, endpoint, app package) are available<br/>Start Bot creation
 
-    CWA Frontend->>CWA Backend: POST /api/provision/aad-app (sessionId, appName)
+    Note over CWA Backend,Graph API: Create Azure AD App Registration
+    CWA Frontend->>CWA Backend: POST /api/provision/aad-app<br/>(sessionId, appName)
     CWA Backend->>Azure AD: acquireTokenSilent(Graph scope)
     Azure AD-->>CWA Backend: Graph access token
-    CWA Backend->>Graph API: POST /applications (create app)
-    Graph API-->>CWA Backend: App created (clientId, objectId)
-    CWA Backend-->>CWA Frontend: Return clientId
+    CWA Backend->>Graph API: POST /applications<br/>(displayName, signInAudience)
+    Graph API-->>CWA Backend: App created (clientId, appRegistrationId)
 
-    CWA Frontend->>CWA Backend: POST /api/provision/client-secret (sessionId, objectId)
-    CWA Backend->>Azure AD: acquireTokenSilent(Graph scope)
-    Azure AD-->>CWA Backend: Graph access token
-    CWA Backend->>Graph API: POST /applications/{id}/addPassword
-    Graph API-->>CWA Backend: Client secret generated
-    CWA Backend-->>CWA Frontend: Return clientSecret
+    Note over CWA Backend,Graph API: Generate Client Secret
+    CWA Backend->>Graph API: POST /applications/{appRegistrationId}/addPassword<br/>(displayName, endDateTime)
+    Graph API-->>CWA Backend: Client secret generated (clientSecret)
 
-    CWA Frontend->>CWA Backend: POST /api/provision/teams-app (sessionId, manifest)
+    Note over CWA Backend,TDP API: Create Teams App Package
     CWA Backend->>Azure AD: acquireTokenSilent(TDP scope)
     Azure AD-->>CWA Backend: TDP access token
-    CWA Backend->>TDP API: POST /api/appdefinitions/v2/import (app package)
+    CWA Backend->>TDP API: POST /api/appdefinitions/v2/import<br/>(app package zip: manifest.json, color.png, outline.png)
     TDP API-->>CWA Backend: Teams app created (teamsAppId)
-    CWA Backend-->>CWA Frontend: Return teamsAppId
 
-    CWA Frontend->>CWA Backend: POST /api/provision/bot (sessionId, botId, endpoint)
-    CWA Backend->>Azure AD: acquireTokenSilent(TDP scope)
-    Azure AD-->>CWA Backend: TDP access token
-    CWA Backend->>TDP API: POST /api/botframework (register bot)
+    Note over CWA Backend,TDP API: Register Bot with Bot Framework
+    CWA Backend->>TDP API: POST /api/botframework<br/>(botId, name, messagingEndpoint, configuredChannels)
     TDP API-->>CWA Backend: Bot registered
     CWA Backend-->>CWA Frontend: Success
 
-    CWA Frontend->>User: Display credentials (clientId, secret, teamsAppId)
+    CWA Frontend->>User: Display credentials (clientId, clientSecret, teamsAppId)
 ```
 
 ## Key Technical Details
