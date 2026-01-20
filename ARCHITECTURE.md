@@ -346,21 +346,18 @@ Check if custom apps are enabled in the user's tenant. If disabled, show helpful
 </details>
 
 ### 6. Post-Provisioning
-After successful bot provisioning, ensure the generated credentials are properly set in the application's `.env` file. Provide a Teams deep link that allows the user to directly install the bot in Microsoft Teams.
+After successful bot provisioning, the generated credentials should be set in the application's `.env` file. Provide a Teams deep link that allows the user to directly install the bot in Microsoft Teams.
 
 <details>
 <summary>Technical Details</summary>
 
-After successful provisioning, display the generated credentials:
+After successful provisioning, set the generated credentials in `.env` file or environment variables:
 - `BOT_ID` (clientId)
 - `BOT_PASSWORD` (clientSecret)
 - `TEAMS_APP_ID` (teamsAppId)
 - `TENANT_ID` (user's tenant ID)
 
-Provide clear guidance for:
-- Setting these values in `.env` file or environment variables
-- Securing the client secret
-- Next steps for bot development
+Provide clear guidance for securing the client secret and next steps for bot development.
 
 **Teams Installation Deep Link** - Generate and display the Teams app installation URL:
 ```
