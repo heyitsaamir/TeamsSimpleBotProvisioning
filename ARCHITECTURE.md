@@ -39,27 +39,11 @@ Microsoft's unified API endpoint (`https://graph.microsoft.com`). Provides APIs 
 
 For CWA to successfully provision a Teams bot for a user, the following conditions must be met:
 
-### 1. User Authentication
-- User must authenticate with CWA using OAuth 2.0 authorization code flow
-- Minimum scope: `User.Read` (usually always grantable by user)
-
-### 2. Admin Consent
-The user's tenant admin must grant consent for these delegated permissions:
-- **Graph API**: `Application.ReadWrite.All` - Create Azure AD apps and secrets
-- **Teams Dev Portal**: `AppDefinitions.ReadWrite` - Create Teams apps and register bots
-
-### 3. User Permissions
-The authenticated user must have roles in their tenant allowing:
-- Creating app registrations in Azure AD
-- Creating Teams apps via Developer Portal
-
-### 4. Tenant Settings
-- **Sideloading**: Tenant must allow custom app uploads (verifiable via TDP API)
-- **App Registration**: Tenant must allow users to register applications (Azure AD setting)
-
-### 5. Bot Endpoint
-- User must provide an HTTPS endpoint where the bot will be hosted
-- Endpoint must be accessible from Microsoft Teams infrastructure
+- Admin must grant consent to enable your CWA application to work in their tenant
+- Admin must enable sideloading of Teams applications
+- User must authenticate to your application
+- CWA must provide a reachable HTTPS endpoint where the bot will be hosted
+- CWA must provide the metadata needed for a Teams application (name, descriptions, icons, etc.)
 
 ## Provisioning Flow
 
