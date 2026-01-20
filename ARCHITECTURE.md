@@ -50,7 +50,7 @@ The user's tenant admin must grant consent for these delegated permissions:
 
 ### 3. User Permissions
 The authenticated user must have roles in their tenant allowing:
-- Creating app registrations in Azure AD (typically requires Application Administrator role)
+- Creating app registrations in Azure AD
 - Creating Teams apps via Developer Portal
 
 ### 4. Tenant Settings
