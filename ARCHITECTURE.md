@@ -3,11 +3,7 @@
 ## System Participants
 
 ### CodeWriterApp (CWA)
-The confidential client application that orchestrates bot provisioning. Key characteristics:
-- **Backend**: Server component that handles OAuth flows and API calls to Graph/TDP
-- **Frontend**: User interface for authentication, consent checking, and bot provisioning
-- **Registered in**: CWA's own Azure AD tenant as a multi-tenant application
-- **Authentication**: Uses OAuth 2.0 authorization code flow with client secret (confidential client)
+CodeWriterApp is your application which will be used to provision bots built on your platform in another user's tenant. It consists of a backend server that talks to Microsoft's APIs and a frontend web interface where users interact. The app is registered in your Azure AD tenant as a multi-tenant application, which means it can work with users from any organization. It uses a confidential client flow - meaning the backend securely stores a client secret that never gets exposed to the browser.
 
 ### Azure AD (CWA Tenant)
 The identity provider where CWA is registered as a multi-tenant application. Handles:
