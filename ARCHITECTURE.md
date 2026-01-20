@@ -1,6 +1,6 @@
 # Third Party Teams Bot Provisioning
 
-This document describes the technical architecture for building a third-party application that provisions Microsoft Teams bots in user tenants.
+This document describes the technical architecture for building a third-party application that provisions Microsoft Teams bots in user tenants. Reference implementations are available in the `reference-backend` and `reference-frontend` folders that can be used alongside this documentation.
 
 ## System Participants
 
