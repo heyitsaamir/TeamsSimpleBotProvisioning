@@ -5,11 +5,8 @@
 ### CodeWriterApp (CWA)
 CodeWriterApp is your application which will be used to provision bots built on your platform in another user's tenant. It consists of a backend server that talks to Microsoft's APIs and a frontend web interface where users interact. The app is registered in your Azure AD tenant as a multi-tenant application, which means it can work with users from any organization. It uses a confidential client flow - meaning the backend securely stores a client secret that never gets exposed to the browser.
 
-### Azure AD (CWA Tenant)
-The identity provider where CWA is registered as a multi-tenant application. Handles:
-- OAuth authorization code flow for user authentication
-- Token issuance for accessing Microsoft Graph and Teams Dev Portal
-- Admin consent grants (tenant-wide permissions)
+### CWA Azure AD Registration
+All apps in Azure need to be registered with Azure AD. Registration gives your app the ability to use OAuth for user authentication and access other services on the user's behalf. For CWA, you'll need access to Microsoft Graph and Teams Developer Portal APIs. Here's the important part: because your app uses sensitive permissions (like installing apps in Teams), admins from your users' organizations will need to approve these permissions before your app can use them in their tenant.
 
 ### User (User Tenant)
 An end user from any Microsoft 365 tenant who wants to provision a bot. The user:
