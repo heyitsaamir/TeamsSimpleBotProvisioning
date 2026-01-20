@@ -304,16 +304,6 @@ Handle the OAuth callback after user authentication. Capture the authorization c
 ### 2. Admin Consent Redirect Page
 Handle the admin consent callback after an admin grants permissions. Display a confirmation message that consent was granted. Optionally include helpful information like instructions for enabling custom apps.
 
-<details>
-<summary>Technical Details</summary>
-
-When scopes are missing:
-- Display admin consent URL prominently
-- Provide clear instructions for User to share URL with Admin
-- Show admin consent callback page confirming successful consent
-- Allow user to re-check scopes after admin grants consent
-</details>
-
 ### 3. User Interface
 Provide clear, helpful UI to guide users through the provisioning process. Show authentication status, permission checks, and provisioning progress.
 
