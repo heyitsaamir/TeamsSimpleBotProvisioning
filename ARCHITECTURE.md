@@ -19,13 +19,13 @@ A tenant administrator in the same tenant as the User. The admin:
 - Has permissions to grant tenant-wide consent for applications
 - Receives admin consent URL from User when permissions are needed
 - Grants consent for CWA to access Graph and TDP APIs on behalf of users in their tenant
-- Can enable sideloading of custom apps in Teams (disabled by default in most tenants)
+- Can enable custom apps in Teams (disabled by default in most tenants)
 
 ### Teams Developer Portal Backend (TDP)
 Microsoft's backend service for Teams app management (`https://dev.teams.microsoft.com`). Provides APIs for:
 - Creating Teams app definitions
 - Registering bot endpoints
-- Checking tenant sideloading status
+- Checking if custom apps are enabled in the tenant
 - **Requires**: `AppDefinitions.ReadWrite` scope
 
 ### Microsoft Graph Backend
@@ -40,7 +40,7 @@ Microsoft's unified API endpoint (`https://graph.microsoft.com`). Provides APIs 
 For CWA to successfully provision a Teams bot for a user, the following conditions must be met:
 
 - Admin must grant consent to enable your CWA application to work in their tenant
-- Admin must enable sideloading of Teams applications
+- Admin must enable custom Teams applications
 - User must authenticate to your application
 - CWA must provide a reachable HTTPS endpoint where the bot will be hosted
 - CWA must provide the metadata needed for a Teams application (name, descriptions, icons, etc.)
@@ -97,16 +97,16 @@ sequenceDiagram
         Note over CWA Backend,Azure AD: Now acquireTokenSilent succeeds
     end
 
-    Note over Admin,TDP API: Sideloading Check
+    Note over Admin,TDP API: Custom Apps Check
 
-    User->>CWA Frontend: Click "Check Sideloading"
-    CWA Frontend->>CWA Backend: POST /api/check-sideloading (sessionId)
+    User->>CWA Frontend: Click "Check Custom Apps"
+    CWA Frontend->>CWA Backend: POST /api/check-custom-apps (sessionId)
     CWA Backend->>Azure AD: acquireTokenSilent(TDP scope)
     Azure AD-->>CWA Backend: TDP access token
     CWA Backend->>TDP API: GET /api/usersettings/mtUserAppPolicy
     TDP API-->>CWA Backend: isSideloadingAllowed: true/false
-    CWA Backend-->>CWA Frontend: Sideloading status
-    CWA Frontend->>User: Display sideloading status
+    CWA Backend-->>CWA Frontend: Custom apps status
+    CWA Frontend->>User: Display custom apps status
 
     Note over Admin,TDP API: Bot Provisioning
 
@@ -161,6 +161,9 @@ When `acquireTokenSilent()` fails, CWA distinguishes between:
 - **Expected**: `consent_required`, `interaction_required`, `invalid_grant` with AADSTS65001 → Show admin consent URL
 - **Unexpected**: Network errors, token expiration, unknown errors → Return error to user
 
+### Admin Consent Flow
+When your application determines that the admin has not consented to allow the app to run in the user's tenant, you should provide the user with an admin consent URL. The user is responsible for sending this URL to their admin along with any justification for why the app needs these permissions. This communication happens out of band.
+
 ## Setting up the CWA App on Azure
 
 To enable CWA to provision bots for users across different tenants, you must register it as a multi-tenant application in your Azure AD tenant.
@@ -169,7 +172,7 @@ To enable CWA to provision bots for users across different tenants, you must reg
 - Sign in to the [Azure Portal](https://portal.azure.com)
 - Navigate to **Azure Active Directory** > **App registrations** > **New registration**
 - Configure:
-  - **Name**: Choose a descriptive name (e.g., "Bot Provisioner")
+  - **Name**: Choose a descriptive name (this is what users and admins will see during OAuth and consent flows)
   - **Supported account types**: Select **Accounts in any organizational directory (Any Azure AD directory - Multitenant)**
   - **Redirect URI**: Leave blank for now (will configure next)
 
@@ -177,8 +180,8 @@ To enable CWA to provision bots for users across different tenants, you must reg
 After registration, add redirect URIs for OAuth flows:
 - Navigate to **Authentication** > **Add a platform** > **Web**
 - Add two redirect URIs:
-  - **OAuth callback**: `https://your-app-domain.com/redirect.html` (handles OAuth authorization code)
-  - **Admin consent callback**: `https://your-app-domain.com/admin-consent-callback.html` (handles admin consent redirect)
+  - **OAuth callback**: This is where the user is redirected after authenticating (typically when building the app on your platform). Your page receives the authorization code and state parameters that need to be sent back to your server performing the bot provisioning work.
+  - **Admin consent callback**: This is where the admin is redirected after approving your application to be used in their tenant. Show a friendly message confirming consent was granted. You may also want to include instructions for enabling custom apps: https://learn.microsoft.com/en-us/microsoftteams/teams-custom-app-policies-and-settings#allow-users-to-upload-custom-apps
 
 ### 3. Generate Client Secret
 - Navigate to **Certificates & secrets** > **New client secret**
@@ -194,7 +197,7 @@ Add the required delegated permissions:
 - Add: `Application.ReadWrite.All`
 
 **Teams Developer Portal**:
-- **Add a permission** > **APIs my organization uses** > Search for "Teams Developer Portal" or use App ID: `1fec8e78-bce4-4aaf-ab1b-5451cc387264`
+- **Add a permission** > **APIs my organization uses** > Search for "App Studio for Microsoft Teams"
 - **Delegated permissions** > Add: `AppDefinitions.ReadWrite`
 
 **Note**: These permissions will be granted per-tenant via admin consent flow. You don't need to grant them in the CWA tenant.
@@ -203,7 +206,6 @@ Add the required delegated permissions:
 Save these values for your backend configuration:
 - **Application (client) ID**: Found on the app registration overview page
 - **Client Secret**: Generated in step 3
-- **Tenant ID**: Your CWA tenant ID (for reference, though using `/common` endpoint)
 
 ## Backend Implementation Requirements
 
@@ -223,12 +225,12 @@ Verify if admin consent has been granted for required permissions:
 - Return list of granted scopes and missing scopes to frontend
 - Generate admin consent URL when scopes are missing
 
-### 3. Check Sideloading
+### 3. Check Custom Apps
 Verify tenant allows custom app uploads:
 - Acquire token for TDP scope
 - Call TDP API: `GET https://dev.teams.microsoft.com/api/usersettings/mtUserAppPolicy`
 - Parse response for `isSideloadingAllowed` boolean value
-- Return sideloading status to frontend
+- Return custom apps status to frontend
 
 ### 4. Provisioning Endpoints
 Implement the complete bot provisioning flow:
@@ -280,8 +282,8 @@ When scopes are missing:
 - Show admin consent callback page confirming successful consent
 - Allow user to re-check scopes after admin grants consent
 
-### 4. Sideloading Check
-- Provide button/action to check tenant sideloading status
+### 4. Custom Apps Check
+- Provide button/action to check if custom apps are enabled in the tenant
 - Display clear enabled/disabled status
 - If disabled, show guidance to contact tenant administrator
 
