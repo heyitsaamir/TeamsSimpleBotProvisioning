@@ -1,4 +1,6 @@
-# Bot Provisioner - Technical Architecture
+# Third Party Teams Bot Provisioning
+
+This document describes the technical architecture for building a third-party application that provisions Microsoft Teams bots in user tenants.
 
 ## System Participants
 
