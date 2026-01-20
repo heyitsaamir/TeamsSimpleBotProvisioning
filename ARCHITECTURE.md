@@ -212,11 +212,22 @@ Save these values for your backend configuration:
 The backend must implement the following capabilities:
 
 ### 1. Authentication & Authorization
+Handle OAuth authorization code flow to authenticate users. Generate authorization URLs, exchange codes for tokens, and manage user sessions.
+
+<details>
+<summary>Technical Details</summary>
+
 - **Start OAuth Flow**: Generate Azure AD authorization URL with `User.Read` scope
 - **Handle OAuth Callback**: Exchange authorization code for access token and refresh token
 - **Token Management**: Store user account information to enable silent token acquisition
+</details>
 
 ### 2. Checking Scopes
+Verify if the admin has granted the required permissions for your application. Distinguish between missing consent and other errors, and provide admin consent URLs when needed.
+
+<details>
+<summary>Technical Details</summary>
+
 Verify if admin consent has been granted for required permissions:
 - Attempt to acquire tokens silently for each required scope:
   - `https://graph.microsoft.com/Application.ReadWrite.All`
@@ -224,16 +235,30 @@ Verify if admin consent has been granted for required permissions:
 - Distinguish between expected consent errors and unexpected failures
 - Return list of granted scopes and missing scopes to frontend
 - Generate admin consent URL when scopes are missing
+</details>
 
 ### 3. Check Custom Apps
+Check if the user's tenant allows custom Teams apps to be uploaded. Return the status to the frontend.
+
+<details>
+<summary>Technical Details</summary>
+
 Verify tenant allows custom app uploads:
 - Acquire token for TDP scope
 - Call TDP API: `GET https://dev.teams.microsoft.com/api/usersettings/mtUserAppPolicy`
 - Parse response for `isSideloadingAllowed` boolean value
 - Return custom apps status to frontend
+</details>
 
 ### 4. Provisioning Endpoints
-Implement the complete bot provisioning flow:
+Implement the bot provisioning workflow by calling Microsoft Graph and Teams Developer Portal APIs to:
+- Create an Azure AD app registration
+- Generate a client secret for the app
+- Create and upload a Teams app package
+- Register the bot with Bot Framework
+
+<details>
+<summary>Technical Details</summary>
 
 **Create Azure AD App Registration**:
 - Acquire token for Graph scope
@@ -258,42 +283,74 @@ Implement the complete bot provisioning flow:
 - Body: `{ "botId": "...", "name": "...", "messagingEndpoint": "...", "configuredChannels": ["msteams"], "isSingleTenant": true }`
 - Handle 409 conflict (bot exists) by updating instead
 - Return: Success status
+</details>
 
 ## Frontend Implementation Requirements
 
 The frontend must provide the user interface for the entire provisioning workflow:
 
-### 1. OAuth Redirect Handling
+### 1. OAuth Redirect Page
+Handle the OAuth callback after user authentication. Capture the authorization code and state from the URL, exchange them with your backend for a session, and redirect back to the main application.
+
+<details>
+<summary>Technical Details</summary>
+
 - Capture authorization code from URL query parameters after Azure AD redirect
 - Send code to backend for token exchange
 - Store session identifier for subsequent API calls
 - Handle authentication errors and display to user
+</details>
 
-### 2. Consent Checking UI
-- Trigger scope verification via backend
-- Display list of granted permissions
-- Show clear indication when all required scopes are granted
-- Enable provisioning workflow only after consent is verified
+### 2. Admin Consent Redirect Page
+Handle the admin consent callback after an admin grants permissions. Display a confirmation message that consent was granted. Optionally include helpful information like instructions for enabling custom apps.
 
-### 3. Admin Consent Flow
+<details>
+<summary>Technical Details</summary>
+
 When scopes are missing:
 - Display admin consent URL prominently
 - Provide clear instructions for User to share URL with Admin
 - Show admin consent callback page confirming successful consent
 - Allow user to re-check scopes after admin grants consent
+</details>
 
-### 4. Custom Apps Check
-- Provide button/action to check if custom apps are enabled in the tenant
-- Display clear enabled/disabled status
-- If disabled, show guidance to contact tenant administrator
+### 3. User Interface
+Provide clear, helpful UI to guide users through the provisioning process. Show authentication status, permission checks, and provisioning progress.
 
-### 5. Bot Provisioning Form
-Collect required information from user:
+<details>
+<summary>Technical Details</summary>
+
+- Trigger scope verification via backend
+- Display list of granted permissions
+- Show clear indication when all required scopes are granted
+- Enable provisioning workflow only after consent is verified
+
+**Bot Provisioning Form** - Collect required information from user:
 - **Bot Name**: Display name for the bot
 - **Bot Endpoint**: HTTPS URL where bot will be hosted (with `/api/messages` path)
 - **App Package Details**: Information needed for Teams manifest (app ID, descriptions, icons, etc.)
+</details>
 
-### 6. Post-Provisioning Display
+### 4. Admin Consent Handling
+When required permissions are missing, display the admin consent URL prominently with clear instructions for the user to share with their administrator. Show which permissions are missing and why they're needed.
+
+### 5. Custom Apps Check
+Check if custom apps are enabled in the user's tenant. If disabled, show helpful guidance and instructions for the user to share with their administrator to enable it.
+
+<details>
+<summary>Technical Details</summary>
+
+- Provide button/action to check if custom apps are enabled in the tenant
+- Display clear enabled/disabled status
+- If disabled, show guidance to contact tenant administrator with documentation link
+</details>
+
+### 6. Post-Provisioning
+After successful bot provisioning, ensure the generated credentials are properly set in the application's `.env` file. Provide a Teams deep link that allows the user to directly install the bot in Microsoft Teams.
+
+<details>
+<summary>Technical Details</summary>
+
 After successful provisioning, display the generated credentials:
 - `BOT_ID` (clientId)
 - `BOT_PASSWORD` (clientSecret)
@@ -305,10 +362,10 @@ Provide clear guidance for:
 - Securing the client secret
 - Next steps for bot development
 
-### 7. Teams Installation Deep Link
-Generate and display the Teams app installation URL:
+**Teams Installation Deep Link** - Generate and display the Teams app installation URL:
 ```
 https://teams.microsoft.com/l/app/{teamsAppId}?installAppPackage=true&webjoin=true&appTenantId={tenantId}&login_hint={userPrincipalName}
 ```
 
 This link allows the user to directly install the provisioned bot in Microsoft Teams.
+</details>
