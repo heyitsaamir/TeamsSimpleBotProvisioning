@@ -313,14 +313,6 @@ When required permissions are missing, display the admin consent URL prominently
 ### 5. Custom Apps Check
 Check if custom apps are enabled in the user's tenant. If disabled, show helpful guidance and instructions for the user to share with their administrator to enable it.
 
-<details>
-<summary>Technical Details</summary>
-
-- Provide button/action to check if custom apps are enabled in the tenant
-- Display clear enabled/disabled status
-- If disabled, show guidance to contact tenant administrator with documentation link
-</details>
-
 ### 6. Post-Provisioning
 After successful bot provisioning, the generated credentials should be set in the application's `.env` file. Provide a Teams deep link that allows the user to directly install the bot in Microsoft Teams.
 
