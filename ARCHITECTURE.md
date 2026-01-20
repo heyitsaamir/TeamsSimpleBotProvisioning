@@ -307,15 +307,6 @@ Handle the admin consent callback after an admin grants permissions. Display a c
 ### 3. User Interface
 Provide clear, helpful UI to guide users through the provisioning process. Show authentication status, permission checks, and provisioning progress.
 
-<details>
-<summary>Technical Details</summary>
-
-**Bot Provisioning Form** - Collect required information from user:
-- **Bot Name**: Display name for the bot
-- **Bot Endpoint**: HTTPS URL where bot will be hosted (with `/api/messages` path)
-- **App Package Details**: Information needed for Teams manifest (app ID, descriptions, icons, etc.)
-</details>
-
 ### 4. Admin Consent Handling
 When required permissions are missing, display the admin consent URL prominently with clear instructions for the user to share with their administrator. Show which permissions are missing and why they're needed.
 
