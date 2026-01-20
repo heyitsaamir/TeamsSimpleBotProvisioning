@@ -320,11 +320,6 @@ Provide clear, helpful UI to guide users through the provisioning process. Show 
 <details>
 <summary>Technical Details</summary>
 
-- Trigger scope verification via backend
-- Display list of granted permissions
-- Show clear indication when all required scopes are granted
-- Enable provisioning workflow only after consent is verified
-
 **Bot Provisioning Form** - Collect required information from user:
 - **Bot Name**: Display name for the bot
 - **Bot Endpoint**: HTTPS URL where bot will be hosted (with `/api/messages` path)
