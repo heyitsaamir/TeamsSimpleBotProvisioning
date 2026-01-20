@@ -41,7 +41,7 @@ For CWA to successfully provision a Teams bot for a user, the following conditio
 
 ### 1. User Authentication
 - User must authenticate with CWA using OAuth 2.0 authorization code flow
-- Minimum scope: `User.Read` (always grantable by user)
+- Minimum scope: `User.Read` (usually always grantable by user)
 
 ### 2. Admin Consent
 The user's tenant admin must grant consent for these delegated permissions:
