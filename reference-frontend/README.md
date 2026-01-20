@@ -62,9 +62,9 @@ If scopes are missing:
 4. Admin is redirected to the consent callback page
 5. Return to main page and click "Check Scopes" again
 
-### Step 3: Check Sideloading (Optional)
-1. Click "Check Sideloading" to verify your tenant allows custom apps
-2. If disabled, contact your Teams administrator
+### Step 3: Check Custom Apps (Optional)
+1. Click "Check Custom Apps" to verify your tenant allows custom apps
+2. If disabled, contact your Teams administrator with the documentation link provided
 
 ### Step 4: Provision Bot
 1. Fill in bot name and endpoint URL
@@ -163,7 +163,7 @@ The JavaScript is organized into clear sections:
 1. **Configuration** - API endpoint configuration
 2. **Initialization** - Session restoration and event listeners
 3. **Authentication & Scope Checking** - OAuth flow and consent verification
-4. **Sideloading Check** - Tenant settings validation
+4. **Custom Apps Check** - Tenant settings validation
 5. **Bot Provisioning** - Complete provisioning flow orchestration
 6. **Results Display** - Credentials and installation link
 

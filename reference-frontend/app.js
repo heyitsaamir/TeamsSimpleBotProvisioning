@@ -172,7 +172,7 @@ function showAuthStatus() {
 }
 
 /**
- * Enables the sideloading check button after authentication.
+ * Enables the custom apps check button after authentication.
  */
 function enableSideloadingCheck() {
     document.getElementById('btn-check-sideloading').disabled = false;
@@ -189,19 +189,19 @@ function clearSession() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SIDELOADING CHECK
+// CUSTOM APPS CHECK
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Checks if the user's tenant allows custom app sideloading.
+ * Checks if the user's tenant allows custom Teams apps.
  *
  * This is required for users to install the provisioned bot.
- * If sideloading is disabled, the tenant admin must enable it.
+ * If custom apps are disabled, the tenant admin must enable them.
  */
 async function checkSideloading() {
     const resultDiv = document.getElementById('sideloading-check-result');
     resultDiv.style.display = 'block';
-    resultDiv.innerHTML = '<p>Checking sideloading status...</p>';
+    resultDiv.innerHTML = '<p>Checking if custom apps are enabled...</p>';
 
     try {
         const response = await fetch(`${API_BASE}/check-sideloading`, {
@@ -219,23 +219,24 @@ async function checkSideloading() {
         if (data.status === 'enabled') {
             resultDiv.innerHTML = `
                 <div class="success">
-                    <p><strong>✓ Sideloading is ENABLED</strong></p>
-                    <p>Your organization allows custom app sideloading in Microsoft Teams.</p>
+                    <p><strong>✓ Custom Apps are ENABLED</strong></p>
+                    <p>Your organization allows custom Teams apps to be uploaded.</p>
                 </div>
             `;
         } else if (data.status === 'disabled') {
             resultDiv.innerHTML = `
                 <div class="error">
-                    <p><strong>✗ Sideloading is DISABLED</strong></p>
-                    <p>Your organization does not allow custom app sideloading.</p>
-                    <p>Contact your Teams administrator to enable it in the Teams admin center.</p>
+                    <p><strong>✗ Custom Apps are DISABLED</strong></p>
+                    <p>Your organization does not allow custom Teams apps.</p>
+                    <p>Contact your Teams administrator to enable custom apps. Share this documentation with them:</p>
+                    <p><a href="https://learn.microsoft.com/en-us/microsoftteams/teams-custom-app-policies-and-settings#allow-users-to-upload-custom-apps" target="_blank">How to enable custom apps in Microsoft Teams</a></p>
                 </div>
             `;
         } else {
             resultDiv.innerHTML = `
                 <div class="warning">
-                    <p><strong>⚠️ Sideloading status unknown</strong></p>
-                    <p>Could not determine sideloading status.</p>
+                    <p><strong>⚠️ Custom Apps status unknown</strong></p>
+                    <p>Could not determine if custom apps are enabled.</p>
                 </div>
             `;
         }
